@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-os"
+version = "0.1.0"
+description = "Recursive-sandbox Agent OS - MVP (deterministic, zero-LLM)"
+requires-python = ">=3.10"
+dependencies = ["watchdog>=4.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

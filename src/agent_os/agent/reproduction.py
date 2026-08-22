@@ -1,0 +1,50 @@
+# -*- coding: utf-8 -*-
+"""繁殖引擎（§6 无性繁殖）：Agent 缺基因时向 OS 请求新子沙箱。
+
+- 分裂：父请求 OS 以基因子集 + 新谱系标签供给子沙箱，挂入 children/
+- 已具备能力（本地或子树）时直接路由，不繁殖
+"""
+import os
+
+from .. import constants as C
+from ..os_layer.client import OSClient
+from ..utils import logger
+
+
+class Reproducer:
+    def __init__(self, sandbox_id: str, sandbox_path: str, sandbox_root: str,
+                 os_client: OSClient, skill_table, children: dict[str, str]):
+        self.sandbox_id = sandbox_id
+        self.path = sandbox_path
+        self.root = sandbox_root
+        self.os = os_client
+        self.table = skill_table
+        self.children = children  # child_id → child_path
+
+    # ---------- 路径解析 ----------
+    def path_of(self, via: str) -> str:
+        """把路由目标解析为沙箱绝对路径（本地/HAA/子）。"""
+        if via == self.sandbox_id:
+            return self.path
+        if via in self.children:
+            return self.children[via]
+        if via in (C.HAA_MATH, C.HAA_DISK):
+            return os.path.join(self.root, via)
+        raise KeyError(f"未知路由目标 {via}")
+
+    # ---------- 能力保证 ----------
+    def ensure_gene(self, gene: str, wait_ready: float = 15.0) -> tuple[str, str, bool]:
+        """确保具备某基因能力，返回 (via, path, is_local)。缺能力则无性繁殖。"""
+        entry = self.table.find_for_gene(gene)
+        if entry is not None:
+            return entry["via"], self.path_of(entry["via"]), entry["local"]
+        # 无性繁殖：向 OS 请求新子沙箱（基因子集 → 新谱系）
+        logger.task(f"{self.sandbox_id}: 缺少基因 {gene} → 无性繁殖")
+        rep = self.os.provision(parent_id=self.sandbox_id, role=C.ROLE_AGENT,
+                                genes=[gene])
+        cid = rep["sandbox_id"]
+        cpath = rep["path"]
+        self.children[cid] = cpath
+        self.table.add_child(cid, cpath, wait_ready=wait_ready)
+        logger.task(f"{self.sandbox_id}: 繁殖完成 child={cid} lineage={rep.get('lineage_tag')}")
+        return cid, cpath, False

@@ -1,0 +1,5 @@
+{
+  "task_id": "t1",
+  "description": "Calculate 5+7 and save result to disk",
+  "parameters": { "expr": "5+7", "save": true }
+}

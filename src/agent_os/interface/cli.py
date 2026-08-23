@@ -154,6 +154,13 @@ def _make_state_provider(sup, sandbox_root):
                 "alive": e.get("alive", True),
                 "state": provisioner.read_state(e["path"]),
             })
+        # 已销毁的沙箱（树轨迹：前端灰显）
+        for sid, g in getattr(sup, "_recent_gone", {}).items():
+            nodes.append({"sandbox_id": sid, "role": g["role"],
+                          "parent_id": g.get("parent_id"),
+                          "haa_identifiers": g.get("haa_identifiers", []),
+                          "lineage_tag": g.get("lineage_tag"),
+                          "alive": False, "state": "destroyed"})
         return {"nodes": nodes}
 
     return _prov

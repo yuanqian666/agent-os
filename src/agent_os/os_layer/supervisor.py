@@ -39,6 +39,9 @@ class Supervisor:
         self._processes: dict[str, subprocess.Popen] = {}
         self._n_completed = 0
         self._processed_req: set[str] = set()  # 已处理请求 req_id（防请求文件残留被重复执行）
+        # 最近销毁的沙箱（面板展示树轨迹：灰显"已销毁"，保留 GONE_TTL 秒）
+        self._recent_gone: dict[str, dict] = {}
+        self.GONE_TTL = 15.0
         self._haa_specs = [
             {"sandbox_id": C.HAA_MATH, "haa_name": C.HAA_MATH,
              "genes": [C.GENE_CPU_CALC]},
@@ -381,6 +384,12 @@ class Supervisor:
                 except subprocess.TimeoutExpired:
                     pass
             shutil.rmtree(entry["path"], ignore_errors=True)
+            # 记录销毁轨迹（供面板灰显；清理过期）
+            self._recent_gone[sid] = {"role": entry["role"],
+                                      "parent_id": entry.get("parent_id"),
+                                      "lineage_tag": entry.get("lineage_tag"),
+                                      "haa_identifiers": entry.get("haa_identifiers", []),
+                                      "gone_at": time.time()}
             del self.registry[sid]
         # 清空控制区
         for d in (self.req_dir, self.reply_dir):
@@ -389,6 +398,10 @@ class Supervisor:
                     os.remove(os.path.join(d, f))
                 except OSError:
                     pass
+        # 清理过期的销毁记录
+        _now = time.time()
+        self._recent_gone = {k: v for k, v in self._recent_gone.items()
+                             if _now - v["gone_at"] < self.GONE_TTL}
         # 重建 Root（同样持有全部基因：规格书 §5 全局能力索引 / §6 繁殖基因来源）
         self.provision(parent_id=INTERFACE_ID, role=C.ROLE_ROOT,
                        genes=list(C.ALL_GENES), sandbox_id=ROOT_ID)

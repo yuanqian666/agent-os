@@ -73,12 +73,13 @@ class AgentRuntime:
     # ================= 主循环 =================
     def run(self) -> None:
         # 声明本地能力（status/skills 供父聚合）
-        provisioner.write_skills(self.path, self.table.local)
+        self._publish_skills()
         self._loop.watch_inbox(self.path)
         self._loop.watch_children(self.path)
         for cid, cpath in self._scan_children():
             self.table.add_child(cid, cpath)
             self._loop.watch_child_status(cpath)
+        self._publish_skills()
         self._loop.start()
         provisioner.write_state(self.path, C.IDLE)
         logger.status(f"{self.sandbox_id} ({self.role}, lineage={self.lineage}, genes={sorted(self.genes)}): 启动")
@@ -91,6 +92,22 @@ class AgentRuntime:
                 self._drain_inbox()  # 周期性兜底排空（watchdog 事件可能丢失）
         finally:
             self._loop.stop()
+
+    def _publish_skills(self) -> None:
+        """发布能力说明（status/skills 供父聚合）：本地技能 + 聚合后编排的复合技能。"""
+        skills = [*self.table.local,
+                  *self.table.compose_composites(self.sandbox_id, self.lineage)]
+        provisioner.write_skills(self.path, skills)
+
+    def _on_skills_changed(self, cid: str) -> None:
+        """子能力表更新后：刷新聚合、重新编排复合技能、重新发布（技能说明向上传播）。"""
+        n = len(self.table._children.get(cid, []))
+        logger.task(f"{self.sandbox_id} [路由器]: 聚合子能力表 ← {cid} ({n} 项技能说明)")
+        self._publish_skills()
+        composites = self.table.compose_composites(self.sandbox_id, self.lineage)
+        if composites:
+            logger.task(f"{self.sandbox_id} [路由器]: 能力覆盖 {sorted(self.table.covered_genes())} "
+                        f"→ 声明复合技能 {[c['skill_id'] for c in composites]}")
 
     def stop(self) -> None:
         self._stop.set()
@@ -127,8 +144,7 @@ class AgentRuntime:
             if os.path.dirname(path) == os.path.join(cpath, C.STATUS_DIR):
                 if os.path.basename(path) == "skills":
                     self.table.refresh_child(cid, cpath)
-                    logger.task(f"{self.sandbox_id}: 聚合子能力表 ← {cid} "
-                                f"({len(self.table._children.get(cid, []))} 项)")
+                    self._on_skills_changed(cid)
                 return
 
     # ================= 任务处理 =================
@@ -164,13 +180,31 @@ class AgentRuntime:
     # ================= 解析与路由 =================
     def _resolve(self, task: dict) -> dict:
         params = dict(task.get("parameters", {}))
-        genes = router.required_genes(params, task.get("description", ""))
+        desc = task.get("description", "")
+
+        # 复杂任务：显式声明技能需求（skill = 基因组合的编排说明）
+        requested = params.get("skills") or []
+        for sid in requested:
+            entry = self.table.find_skill(sid, self.sandbox_id, self.lineage)
+            if entry:
+                via = entry["via"]
+                if via == self.sandbox_id:
+                    logger.task(f"{self.sandbox_id} [路由器]: 命中复合技能 {sid} "
+                                f"(编排 {entry['skill'].get('sub_skills')}) → 分解执行")
+                else:
+                    logger.task(f"{self.sandbox_id} [路由器]: 技能 {sid} 由子 {via} 提供 → 路由")
+            else:
+                logger.task(f"{self.sandbox_id} [路由器]: 技能 {sid} 不在能力表 "
+                            f"→ 按基因分解/繁殖")
+
+        genes = router.required_genes(params, desc)
         if not genes:
             raise ValueError(f"无法从参数推断需求基因: {params}")
         results: dict[str, dict] = {}
         # 按基因顺序处理：Math 结果注入 Disk 子任务（Root 路由结果给 Child B）
         for gene in sorted(genes):
             via, path, is_local = self.reproducer.ensure_gene(gene)
+            self._refresh_capabilities()  # 能力表变化后重新编排/发布复合技能
             # Math 结果注入 Disk 子任务（Root 路由结果给 Child B）
             if gene == C.GENE_DISK_WRITE and "content" not in params:
                 math_val = router.aggregate_by_gene(results, C.GENE_CPU_CALC).get("value")
@@ -180,6 +214,15 @@ class AgentRuntime:
             out = router.delegate(subtask, path, timeout=self.timeout)
             results[gene] = out
         return self._aggregate(results)
+
+    def _refresh_capabilities(self) -> None:
+        """能力表变化后：重新编排复合技能并发布（技能说明自下而上聚合传播）。"""
+        self._publish_skills()
+        composites = self.table.compose_composites(self.sandbox_id, self.lineage)
+        if composites:
+            logger.task(f"{self.sandbox_id} [路由器]: 能力覆盖 "
+                        f"{sorted(self.table.covered_genes())} "
+                        f"→ 声明复合技能 {[c['skill_id'] for c in composites]}")
 
     def _aggregate(self, results: dict[str, dict]) -> dict:
         """聚合子结果（MVP 演示口径）。"""

@@ -16,7 +16,7 @@ from agent_os.interface.cli import parse_demo_sentence, submit_task, wait_result
 from agent_os.lifecycle.bootstrap import bootstrap
 from agent_os.utils import jsonio, logger
 
-DEMO_SENTENCE = "Calculate 5+7 and save result to disk"
+DEMO_SENTENCE = "Calculate (5+7)*3 and save result to disk"
 
 
 def main():

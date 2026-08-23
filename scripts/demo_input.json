@@ -1,5 +1,5 @@
 {
   "task_id": "t1",
-  "description": "Calculate 5+7 and save result to disk",
-  "parameters": { "expr": "5+7", "save": true }
+  "description": "Calculate (5+7)*3 and save result to disk",
+  "parameters": { "expr": "(5+7)*3", "save": true, "skills": ["calc_and_save"] }
 }

@@ -32,11 +32,22 @@ python -m pytest tests/ -v
 
 ## 演示成功标准（规格书 §8，已全部自动化断言于 test_demo_e2e.py）
 
-1. 用户提交复杂任务："Calculate 5+7 and save result to disk"
-2. Root 发现缺少基因 → 分裂出 Child A（cpu_calc，谱系 L1）与 Child B（disk_write，谱系 L2）
-3. Child A 经 Math_HAA 算出 12 → 结果上抛 → Root 将 content="12" 路由下发 Child B → Disk_HAA 写盘
-4. 控制台日志显示文件读写事件驱动状态流转（idle→running→completed）
-5. 任务完成后 OS 层物理清除整棵 Agent 树（仅存 os/ + 持久 HAA + 重建的 Root）
+演示任务（复杂任务）：**"Calculate (5+7)*3 and save result to disk"** → `parameters: {expr, save, skills:["calc_and_save"]}`
+
+1. 界面层提交复杂任务，显式声明复合技能需求 `calc_and_save`
+2. Root（路由器）查能力表未命中 → 按基因分解 → 无性繁殖 Child A（cpu_calc，谱系 L1）与 Child B（disk_write，谱系 L2）
+3. 子 Agent 上传技能说明 → Root 聚合 → 声明复合技能 `calc_and_save`（能力向上传播）
+4. Child A 经 Math_HAA 算出 36 → 结果上抛 → Root 路由给 Child B → Disk_HAA 写盘
+5. 控制台日志显示文件读写事件驱动状态流转 + 路由器决策链
+6. 任务完成后 OS 层物理清除整棵 Agent 树（仅存 os/ + 持久 HAA + 重建的 Root）
+
+## 架构概念（对齐规格书与设计意图）
+
+- **skill = 基因组合的编排说明**：子 Agent 把自身拥有的技能（含 required_genes 基因组合、输入/输出 schema、编排说明）写入 `status/skills` 向上传播；
+- **能力自下而上聚合**：父 Agent 的能力表 = 本地技能 ∪ 全部子技能并集；聚合后自动**编排复合技能**（如 `calc_and_save` = math_eval + disk_write 两个基因组合），再次向上声明——Root 即全局能力索引；
+- **上级 = 路由器**：每个 Agent 收到任务后查能力表决策：命中→路由，未命中→分解/繁殖；`[路由器]` 日志展示每次决策；
+- **整棵树是递归树**：同一份运行时递归实例化，任意深度；复杂任务在界面层声明（如 `skills:["calc_and_save"]`），上层逐层分解为子任务，叶子经 HAA 执行后逐层向上合并；
+- **认知盲区**：每个 Agent 只知"任务从上面来、向下委派"，不知父是否为 Root、子是否为 HAA。
 
 ## 关键设计决策（与规格书的对齐与偏差）
 

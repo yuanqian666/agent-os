@@ -26,7 +26,10 @@ _CN_RE = re.compile(
 
 
 def parse_demo_sentence(text: str) -> dict | None:
-    """把演示句翻译为结构化任务；无法解析返回 None。"""
+    """把演示句翻译为结构化任务；无法解析返回 None。
+
+    复杂任务：显式声明复合技能 calc_and_save（skill = 基因组合的编排说明）。
+    """
     text = text.strip()
     for rx in (_EXPR_RE, _CN_RE):
         m = rx.search(text)
@@ -35,7 +38,8 @@ def parse_demo_sentence(text: str) -> dict | None:
             return {
                 "task_id": f"t{uuid.uuid4().hex[:6]}",
                 "description": text,
-                "parameters": {"expr": expr, "save": True},
+                "parameters": {"expr": expr, "save": True,
+                               "skills": ["calc_and_save"]},
             }
     return None
 

@@ -14,8 +14,9 @@ from agent_os.utils import jsonio, logger
 
 TASK = {
     "task_id": "e2e1",
-    "description": "Calculate 5+7 and save result to disk",
-    "parameters": {"expr": "5+7", "save": True},
+    "description": "Calculate (5+7)*3 and save result to disk",
+    "parameters": {"expr": "(5+7)*3", "save": True,
+                    "skills": ["calc_and_save"]},
 }
 
 
@@ -51,8 +52,8 @@ def test_demo_e2e(sandbox_root, tmp_path):
         assert result is not None, "未获得任务结果"
         out = result["output"]
         assert out["task_id"] == "e2e1"
-        # 成功标准 3 的结果：数学值 + 落盘文件
-        assert out["result"]["value"] == 12
+        # 成功标准 3 的结果：复杂表达式 (5+7)*3 = 36 + 落盘文件
+        assert out["result"]["value"] == 36
         assert out["result"]["file"] == "e2e1-d.txt"
 
         # ---- 跨进程日志（含子进程）----
@@ -71,7 +72,13 @@ def test_demo_e2e(sandbox_root, tmp_path):
         # ---- 成功标准 3：Root 路由结果给 Disk 分支 ----
         assert any("→ math_haa" in m for m in msgs), "未见 math_haa 路由"
         assert any("→ disk_haa" in m for m in msgs), "未见 disk_haa 路由"
-        assert any("写盘 12" in m for m in msgs), "数学结果未注入写盘子任务"
+        assert any("写盘 36" in m for m in msgs), "数学结果未注入写盘子任务"
+
+        # ---- 复杂任务：路由器决策 + 复合技能声明（skill=基因组合，说明向上传播） ----
+        assert any("[路由器]" in m for m in msgs), "无路由器决策日志"
+        assert any("技能 calc_and_save 不在能力表 → 按基因分解/繁殖" in m for m in msgs), \
+            "未见复杂任务分解决策"
+        assert any("声明复合技能" in m for m in msgs), "未见复合技能声明（能力向上聚合）"
 
         # ---- 成功标准 4：文件事件驱动状态流转 ----
         assert any("文件事件" in m for m in msgs), "无文件事件日志"
@@ -94,7 +101,7 @@ def test_demo_e2e(sandbox_root, tmp_path):
         # ---- 磁盘落盘验证 ----
         disk_file = os.path.join(out_root, "e2e1-d.txt")
         assert os.path.isfile(disk_file)
-        assert jsonio.read_text(disk_file) == "12"
+        assert jsonio.read_text(disk_file) == "36"
     finally:
         if sup:
             sup.stop()
@@ -109,10 +116,12 @@ def test_demo_two_tasks_in_a_row(sandbox_root, tmp_path, logs):
     sup = None
     try:
         sup, r1 = _run_demo(sandbox_root, TASK)
-        assert r1["output"]["result"]["value"] == 12
+        assert r1["output"]["result"]["value"] == 36
+        sup.stop()  # 先清理第一个 supervisor 的存活进程，再启动第二个
 
         # 第二个任务（不同 task_id）
-        t2 = {**TASK, "task_id": "e2e2", "parameters": {"expr": "2+3", "save": True}}
+        t2 = {**TASK, "task_id": "e2e2", "parameters": {"expr": "2+3", "save": True,
+                                                     "skills": ["calc_and_save"]}}
         sup2, r2 = _run_demo(sandbox_root, t2)
         assert r2 is not None
         assert r2["output"]["result"]["value"] == 5

@@ -58,6 +58,33 @@ def test_aggregation_refresh_and_remove(tmp_path):
     assert table.find_for_gene(C.GENE_DISK_WRITE) is None
 
 
+def test_composite_skill_orchestration(tmp_path):
+    """复合技能（skill=基因组合）：子树基因覆盖完整组合时才编排声明。"""
+    table = SkillTable([])
+    # 只有 math 能力 → 无法编排 calc_and_save
+    m_path = provisioner.create_sandbox(str(tmp_path / "sb_m"), "sb_m",
+                                        C.ROLE_AGENT, "root", "l1", ["math_haa"])
+    provisioner.write_skills(m_path, declare_local_skills({C.GENE_CPU_CALC}, "l1"))
+    table.add_child("sb_m", m_path)
+    assert table.compose_composites("me", "l0") == []
+    assert table.find_skill("calc_and_save") is None
+
+    # 补上 disk 能力 → 基因组合覆盖 → 编排出复合技能
+    d_path = provisioner.create_sandbox(str(tmp_path / "sb_d"), "sb_d",
+                                        C.ROLE_AGENT, "root", "l2", ["disk_haa"])
+    provisioner.write_skills(d_path, declare_local_skills({C.GENE_DISK_WRITE}, "l2"))
+    table.add_child("sb_d", d_path)
+    comp = table.compose_composites("me", "l0")
+    assert len(comp) == 1 and comp[0]["skill_id"] == "calc_and_save"
+    assert comp[0]["composite"] is True
+    assert set(comp[0]["required_genes"]) == {C.GENE_CPU_CALC, C.GENE_DISK_WRITE}
+    assert comp[0]["next_hop"] == "me"  # 由本路由器分解执行
+    assert table.find_skill("calc_and_save")["local"] is True
+    # 按 skill_id 查询子提供的基础技能
+    hit = table.find_skill("disk_write")
+    assert hit["via"] == "sb_d" and hit["local"] is False
+
+
 # ---------- 无性繁殖（真实 OS + 子进程） ----------
 def test_reproduction_provisions_child_with_genes(sandbox_root, logs):
     sup = Supervisor(sandbox_root)

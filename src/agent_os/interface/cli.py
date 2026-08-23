@@ -236,4 +236,15 @@ if __name__ == "__main__":
         # 环境变量传递给 spawn 的子进程（保持同样过滤）
         os.environ.setdefault("AGENT_OS_LOG_LEVEL", "TASK")
         logger.set_min_level("TASK")
+    # 默认写系统日志文件（供独立可视化面板读取日志流）
+    _log_file = os.path.join(_repo, "runtime_log", "system.log")
+    os.makedirs(os.path.dirname(_log_file), exist_ok=True)
+    os.environ.setdefault("AGENT_OS_LOG_FILE", _log_file)
+    # 预置示例数据（多 HAA 演示：expr.txt 内容 "5+7"）
+    _data_dir = os.path.join(_repo, "data")
+    os.makedirs(_data_dir, exist_ok=True)
+    _expr = os.path.join(_data_dir, "expr.txt")
+    if not os.path.exists(_expr):
+        with open(_expr, "w", encoding="utf-8") as f:
+            f.write("5+7")
     run_interactive(_root, enable_web=not args.no_web, web_port=args.web_port)

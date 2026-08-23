@@ -23,6 +23,7 @@ _HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_ui.ht
 class _Handler(BaseHTTPRequestHandler):
     state_provider = None   # () -> dict：沙箱树状态
     history_provider = None  # () -> list：运行记录
+    log_provider = None     # (after_id) -> list：文件模式日志（独立面板）
     log_dir = None           # 运行记录目录（不存在时返回空）
 
     # ---------- 路由 ----------
@@ -43,7 +44,11 @@ class _Handler(BaseHTTPRequestHandler):
                     q = dict(kv.split("=") for kv in
                              self.path.split("?", 1)[1].split("&") if "=" in kv)
                     after = int(q.get("id", 0))
-                self._json(logger.get_since(after))
+                log_prov = type(self).log_provider
+                if log_prov:  # 独立面板（文件模式）优先
+                    self._json(log_prov(after))
+                else:
+                    self._json(logger.get_since(after))
             elif path == "/api/history":
                 self._json(hist_prov() if hist_prov else [])
             else:
@@ -126,3 +131,92 @@ class WebServer:
 def read_history(log_path: str) -> list[dict]:
     """读运行记录文件（不存在返回空列表）。"""
     return jsonio.read_jsonl(log_path) if log_path else []
+
+
+# ================= 独立面板（文件模式） =================
+# 不依赖系统进程内存：读 OS 持久化的 registry.json + runtime_log +
+# 系统日志文件，可单独开一个进程/窗口查看运行中的系统。
+
+def file_state_provider(sandbox_root: str):
+    """从 os/registry.json（OS 每次供给/teardown 后持久化）组装沙箱树。"""
+    from ..os_layer import provisioner
+    root = os.path.abspath(sandbox_root)
+    reg_path = os.path.join(root, "os", "registry.json")
+
+    def _prov() -> dict:
+        reg = jsonio.read_json(reg_path) or {}
+        nodes = []
+        for sid, e in reg.items():
+            p = e.get("path")
+            if not p or not os.path.isdir(p):
+                continue
+            nodes.append({
+                "sandbox_id": sid,
+                "role": e["role"],
+                "parent_id": e.get("parent_id"),
+                "haa_identifiers": e.get("haa_identifiers", []),
+                "lineage_tag": e.get("lineage_tag"),
+                "alive": e.get("alive", True),
+                "state": provisioner.read_state(p),
+            })
+        return {"nodes": nodes}
+
+    return _prov
+
+
+def file_log_provider(log_path: str):
+    """从系统日志文件增量读取（按行号 id）。"""
+    def _prov(after_id: int = 0) -> list[dict]:
+        if not log_path or not os.path.isfile(log_path):
+            return []
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        except OSError:
+            return []
+        out = []
+        for i, ln in enumerate(lines[after_id:], start=after_id + 1):
+            ln = ln.strip()
+            if not ln:
+                continue
+            # [HH:MM:SS.mmm] [LEVEL] msg
+            level = "INFO"
+            if "] [" in ln:
+                level = ln.split("] [", 1)[1].split("]", 1)[0]
+            msg = ln.split("] ", 2)[-1] if "] " in ln else ln
+            out.append({"id": i, "ts": ln[1:20] if ln.startswith("[") else "",
+                        "level": level, "msg": msg})
+        return out
+
+    return _prov
+
+
+if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Agent OS 独立可视化面板（文件模式）")
+    ap.add_argument("--sandbox-root", default=None,
+                    help="沙箱根目录（默认 <repo>/sandbox_root）")
+    ap.add_argument("--port", type=int, default=8710, help="端口（默认 8710）")
+    ap.add_argument("--log-file", default=None,
+                    help="系统日志文件（默认 <repo>/runtime_log/system.log）")
+    args = ap.parse_args()
+    _repo = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
+    _root = os.path.abspath(args.sandbox_root or os.path.join(_repo, "sandbox_root"))
+    _log = args.log_file or os.path.join(_repo, "runtime_log", "system.log")
+    ws = WebServer(state_provider=file_state_provider(_root),
+                   history_provider=lambda: read_history(
+                       os.path.join(os.path.dirname(_root), "runtime_log",
+                                    "tasks.jsonl")),
+                   port=args.port)
+    if not ws.start():
+        raise SystemExit(1)
+    # 日志流：文件模式用独立 HTTP 端点 /api/flogs
+    _Handler.log_provider = file_log_provider(_log)
+    try:
+        import time as _t
+        while True:
+            _t.sleep(3600)
+    except KeyboardInterrupt:
+        ws.stop()

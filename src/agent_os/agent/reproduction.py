@@ -69,6 +69,6 @@ class Reproducer:
         cpath = rep["path"]
         self.children[cid] = cpath
         self.table.add_child(cid, cpath, wait_ready=wait_ready)
-        logger.task(f"{self.sandbox_id}: 繁殖完成 child={cid}（族系按基因 {gene} 划分）"
-                    f" lineage={rep.get('lineage_tag')}")
+        logger.task(f"{self.sandbox_id}: 繁殖完成 child={cid} "
+                    f"lineage={rep.get('lineage_tag')}")
         return cid, cpath, False

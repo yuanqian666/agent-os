@@ -173,14 +173,9 @@ class Supervisor:
 
         # 基因 → HAA 标识符（genome 存 HAA 标识符与谱系标签）
         haa_ids = [C.GENE_HAA_MAP[g] for g in genes if g in C.GENE_HAA_MAP]
-        # 谱系按基因划分（规格书 §5：LINEAGE = 独特基因组合分支）
-        if sid == ROOT_ID:
-            lineage = "lineage_root"
-        elif genes:
-            hex6 = C.new_lineage_tag().split("_")[1][:6]
-            lineage = f"lineage_{'+'.join(sorted(set(genes)))}_{hex6}"
-        else:
-            lineage = C.new_lineage_tag()
+        # 谱系（族系）与基因解耦：族系 = 任务拆解的逻辑树分支（公理 3），
+        # 不同族系可携带若干相同基因；基因只决定公链可达性（公理 1/2）
+        lineage = "lineage_root" if sid == ROOT_ID else C.new_lineage_tag()
 
         # 路径：HAA（flat）与 OS 托管平铺于沙箱根；Agent 嵌套于父 children/ 下
         if flat or virtual:

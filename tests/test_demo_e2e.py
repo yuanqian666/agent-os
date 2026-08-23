@@ -71,11 +71,12 @@ def test_demo_e2e(sandbox_root, tmp_path):
         # 影子请求回归：每个基因只供给一个沙箱（残留进程并发会产生重复供给）
         assert sum("供给沙箱 sb_" in m for m in msgs) == 2, \
             f"出现影子供给（残留进程并发）: {[m for m in msgs if '供给沙箱 sb_' in m]}"
-        # 谱系按基因划分（两个子 Agent 属于不同基因族系）
+        # 族系与基因解耦：两个子 Agent 属于不同族系（唯一），谱系名不含基因
         lineages = {m.split("lineage=")[1].strip()
                     for m in msgs if "繁殖完成" in m and "lineage=" in m}
         assert len(lineages) == 2
-        assert all("lineage_cpu_calc" in l or "lineage_disk_write" in l for l in lineages)
+        assert all(not l.startswith("lineage_cpu_calc") and not l.startswith("lineage_disk_write")
+                   for l in lineages)
 
         # ---- 成功标准 3：Root 路由结果给 Disk 分支 ----
         assert any("→ math_haa" in m for m in msgs), "未见 math_haa 路由"

@@ -128,20 +128,26 @@ async function loadState() {
 // ---- 显示树构建：HAA 动态挂载到携带其基因的族系子下 ----
 // 初始：root 直连 HAA；root 繁殖出携带基因的族系子后，该 HAA 的
 // 显示父变为族系子（root 经子 agent 间接连接 HAA，符合公链语义）。
+// HAA 记住 bestCarrier：存活优先，销毁后保留灰显挂载（不立即回挂 root）。
 function buildDisplayTree() {
   const nodes = [...nodeHistory.values()];
-  // HAA → 携带其基因的存活族系子（没有则保持 registry 父 = root）
-  const haaCarrier = {};
   nodes.filter(n => n.role === "haa").forEach(haa => {
-    // 载体必须是在存活（alive）的族系子；已销毁（alive=false）不能承载
-    const carrier = nodes.find(n => n.role === "agent" && n.alive !== false &&
+    // 存活族系子优先（出现即刷新 bestCarrier）；销毁不撤销
+    const alive = nodes.find(n => n.role === "agent" && n.alive !== false &&
                      (n.haa_identifiers || []).includes(haa.sandbox_id));
-    haaCarrier[haa.sandbox_id] = carrier ? carrier.sandbox_id : null;
+    if (alive) { haa.bestCarrier = alive.sandbox_id; return; }
+    // 无存活承载者：若从未记住，则从历史（含已销毁）推断拓扑关系
+    if (!haa.bestCarrier) {
+      const any = nodes.find(n => n.role === "agent" &&
+                       (n.haa_identifiers || []).includes(haa.sandbox_id));
+      if (any) haa.bestCarrier = any.sandbox_id;
+    }
   });
-  // 显示父：HAA → carrier 或 registry parent；agent → registry parent
-  const dispParent = n => n.role === "haa"
-      ? (haaCarrier[n.sandbox_id] || n.parent_id)
-      : n.parent_id;
+  const dispParent = n => {
+    if (n.role === "haa" && n.bestCarrier && nodeHistory.has(n.bestCarrier))
+      return n.bestCarrier;                 // 挂到（含已销毁的）承载族系子下
+    return n.parent_id;                     // 从未承载 → registry 父（root）
+  };
   return { nodes, dispParent };
 }
 

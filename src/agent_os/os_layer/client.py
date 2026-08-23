@@ -45,6 +45,10 @@ class OSClient:
                     os.remove(reply_path)
                 except OSError:
                     pass
+                # 防回复错配：只接受与本次请求 req_id 匹配的回复
+                # （幽灵/残留回复可能携带别的 sandbox_id）
+                if rep.get("req_id") != req["req_id"]:
+                    continue
                 if rep.get("ok") is False:
                     raise OSError(rep.get("error", "OS 拒绝"))
                 return rep

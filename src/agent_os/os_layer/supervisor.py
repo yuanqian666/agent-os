@@ -318,7 +318,8 @@ class Supervisor:
             if reply_name:
                 try:
                     jsonio.write_json(os.path.join(self.reply_dir, reply_name),
-                                      {"ok": ok, **(result or {})})
+                                      {"ok": ok, "req_id": req.get("req_id"),
+                                       **(result or {})})
                 except OSError:
                     pass
             try:

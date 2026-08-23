@@ -49,6 +49,8 @@ def delegate(task: dict, child_path: str, timeout: float = 30.0) -> dict:
 
     两相握手：仅当 output.task_id 与下发任务一致且 state==completed 才返回
     （防读取上一任务的陈旧 completed/output）。
+    子 state==error 且 help_requests 非空 → 视为"沿族系上抛"，返回
+    {"help_requests": [...], "task_id": ...} 由父（祖先节点）接管编排。
     """
     inbox = os.path.join(child_path, C.TASK_INBOX)
     jsonio.append_jsonl(inbox, task)
@@ -62,6 +64,12 @@ def delegate(task: dict, child_path: str, timeout: float = 30.0) -> dict:
             logger.task(f"子沙箱完成 {os.path.basename(child_path)}: {out}")
             return out
         if state == C.ERROR and out.get("task_id") == tid:
+            reqs = provisioner.read_help_requests(child_path)
+            if reqs:
+                logger.task(f"子沙箱上抛帮助请求 {os.path.basename(child_path)}: "
+                            f"{[r.get('gene') for r in reqs]} → 祖先接管")
+                return {"help_requests": reqs, "task_id": tid,
+                        "error": out.get("error")}
             raise RuntimeError(f"子沙箱执行失败: {out}")
         time.sleep(0.05)
     raise TimeoutError(f"等待子沙箱 {child_path} 完成超时")

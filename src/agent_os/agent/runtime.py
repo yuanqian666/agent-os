@@ -16,7 +16,7 @@ from ..os_layer import provisioner
 from ..os_layer.client import OSClient
 from ..utils import logger
 from . import router
-from .reproduction import Reproducer
+from .reproduction import GeneNotOwned, Reproducer
 from .skill_table import COMPOSITE_SKILLS, SkillTable, declare_local_skills
 from .task_loop import TaskLoop
 
@@ -60,9 +60,11 @@ class AgentRuntime:
         self.table = SkillTable(declare_local_skills(declared, self.lineage))
         self.reproducer = Reproducer(self.sandbox_id, self.path,
                                      self.sandbox_root, self.os,
-                                     self.table, self.children)
+                                     self.table, self.children, self.genes)
 
         self._processed: set[str] = set()
+        self._steps: list[dict] = []      # 调度蓝图 DAG：本次任务的派发步骤
+        self._help_path: list[str] = []   # help_request 上抛路径（防回环）
         self._loop = TaskLoop(self._on_event)
         self._stop = threading.Event()
 
@@ -183,7 +185,20 @@ class AgentRuntime:
             if self.role == C.ROLE_ROOT:
                 logger.task(f"{self.sandbox_id}: 任务完成 → 上报 OS 销毁 Agent 树")
                 self.os.report_done(self.sandbox_id,
-                                    final_output={"task_id": tid, "result": result})
+                                    final_output={"task_id": tid, "result": result,
+                                                  "steps": self._steps})
+        except GeneNotOwned as e:
+            # 控制流第一定律：跨域缺基因 → help_request 沿族系向上抛回，
+            # 由同时拥有所需基因的祖先节点接管编排（不横向杂交）
+            logger.task(f"{self.sandbox_id}: 基因 {e.gene} 不可达 → help_request 沿族系上抛")
+            reqs = provisioner.read_help_requests(self.path)
+            reqs.append({"task_id": tid, "gene": e.gene,
+                         "parameters": task.get("parameters", {}),
+                         "path": [*self._help_path, self.sandbox_id]})
+            provisioner.write_help_requests(self.path, reqs)
+            provisioner.write_output(self.path, {"task_id": tid,
+                                                 "error": f"缺基因 {e.gene} 已上抛"})
+            provisioner.write_state(self.path, C.ERROR)
         except Exception as e:
             logger.error(f"{self.sandbox_id}: 任务 {tid} 失败: {e}")
             provisioner.write_output(self.path, {"task_id": tid, "error": str(e)})
@@ -223,8 +238,32 @@ class AgentRuntime:
                 if math_val is not None:
                     params["content"] = str(math_val)
             subtask = router.build_subtask(task, gene, params, leaf=is_local)
+            self._steps.append({"task": subtask["task_id"], "gene": gene,
+                                "via": os.path.basename(path),
+                                "step": len(self._steps) + 1})
             out = router.delegate(subtask, path, timeout=self.timeout)
-            results[gene] = out
+            if "help_requests" in out:
+                # 祖先节点接管（MapReduce 编排）：对上抛的每个基因，
+                # 本祖先（拥有该基因）调配分支并派发，结果并入汇总
+                logger.task(f"{self.sandbox_id} [祖先编排]: 接管 help_requests "
+                            f"{len(out['help_requests'])} 项，按基因调配派发")
+                for hr in out["help_requests"]:
+                    g = hr["gene"]
+                    v2, p2, local2 = self.reproducer.ensure_gene(g)
+                    self._refresh_capabilities()
+                    sub2 = router.build_subtask(
+                        {**task, "task_id": hr.get("task_id") or tid},
+                        g, hr.get("parameters") or params, leaf=local2)
+                    self._steps.append({"task": sub2["task_id"], "gene": g,
+                                        "via": os.path.basename(p2),
+                                        "step": len(self._steps) + 1,
+                                        "origin": "ancestor-orchestrated"})
+                    res2 = router.delegate(sub2, p2, timeout=self.timeout)
+                    if "help_requests" in res2:
+                        raise RuntimeError("上抛未被祖先解决（基因缺失链）")
+                    results[g] = res2
+            else:
+                results[gene] = out
         return self._aggregate(results)
 
     def _refresh_capabilities(self) -> None:

@@ -38,11 +38,19 @@ class HAA:
         w = watchers.FileWatcher(self._on_file_event, debounce_ms=150)
         w.watch_file(self.inbox)
         w.start()
-        # HAA 作为伪 Agent 也声明能力说明（供父聚合；skill=基因组合）
-        from ..agent.skill_table import declare_local_skills
+        # HAA 不是技能而是权限令牌（机制与策略分离）：声明基因-物理机制映射，
+        # 供上层识别"经此可达的物理能力"；策略/技能属于 LLM Agent 侧
+        token_meta = {"math_haa": "算术求值机制", "disk_haa": "磁盘写入机制"}
         genome = provisioner.read_genome(self.path)
         lineage = genome.get("lineage_tag", f"lineage_{self.haa_name}")
-        provisioner.write_skills(self.path, declare_local_skills({self.gene}, lineage))
+        provisioner.write_skills(self.path, [{
+            "skill_id": f"token_{self.gene}",
+            "description": f"物理机制：{token_meta.get(self.haa_name, self.haa_name)}",
+            "input_schema": {}, "output_schema": {},
+            "next_hop": self.haa_name, "lineage_tag": lineage,
+            "required_genes": [self.gene],
+            "token": True,  # 权限令牌声明（非可编排技能）
+        }])
         provisioner.write_state(self.path, C.IDLE)
         logger.status(f"{self.haa_name}: 启动，等待任务 (gene={self.gene})")
         try:

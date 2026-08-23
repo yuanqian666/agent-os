@@ -86,6 +86,27 @@ def test_composite_skill_orchestration(tmp_path):
 
 
 # ---------- 无性繁殖（真实 OS + 子进程） ----------
+def test_gene_not_owned_raises_instead_of_reproducing(tmp_path):
+    """公理 1 + 控制流第一定律：跨域缺基因（不可达）不繁殖，抛 GeneNotOwned 上抛。"""
+    import pytest
+    from agent_os.agent.reproduction import GeneNotOwned, Reproducer
+    from agent_os.agent.skill_table import SkillTable
+    from agent_os.os_layer.client import OSClient
+    root = str(tmp_path)
+    os.makedirs(os.path.join(root, "os"), exist_ok=True)
+    os.makedirs(os.path.join(root, "requests"), exist_ok=True)
+    os.makedirs(os.path.join(root, "replies"), exist_ok=True)
+    table = SkillTable(declare_local_skills({C.GENE_CPU_CALC}, "l1"))
+    repro = Reproducer("sb_cpu", str(tmp_path / "sb_cpu"), root,
+                       OSClient(root, "sb_cpu"), table, {},
+                       genes={C.GENE_CPU_CALC})
+    # 自身基因集内缺技能 → 繁殖
+    # （无 OS 主循环时 provision 会超时，这里只验证跨域分支：不繁殖直接抛）
+    with pytest.raises(GeneNotOwned) as ei:
+        repro.ensure_gene(C.GENE_DISK_WRITE)
+    assert ei.value.gene == C.GENE_DISK_WRITE
+
+
 def test_reproduction_provisions_child_with_genes(sandbox_root, logs):
     sup = Supervisor(sandbox_root)
     sup.start()

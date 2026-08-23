@@ -11,15 +11,28 @@ from ..os_layer.client import OSClient
 from ..utils import logger
 
 
+class GeneNotOwned(Exception):
+    """跨域缺基因：所需基因不在自身基因集（不可达对应 HAA）。
+
+    控制流第一定律：底层节点不横向杂交（无性生殖唯一），触发
+    help_request 沿族系向上抛回，由同时拥有所需基因的祖先节点接管编排。
+    """
+
+    def __init__(self, gene: str):
+        self.gene = gene
+
+
 class Reproducer:
     def __init__(self, sandbox_id: str, sandbox_path: str, sandbox_root: str,
-                 os_client: OSClient, skill_table, children: dict[str, str]):
+                 os_client: OSClient, skill_table, children: dict[str, str],
+                 genes: set[str]):
         self.sandbox_id = sandbox_id
         self.path = sandbox_path
         self.root = sandbox_root
         self.os = os_client
         self.table = skill_table
         self.children = children  # child_id → child_path
+        self.genes = set(genes)   # 自身基因集（基因=向下可达性，公理 1）
 
     # ---------- 路径解析 ----------
     def path_of(self, via: str) -> str:
@@ -36,12 +49,15 @@ class Reproducer:
     def ensure_gene(self, gene: str, wait_ready: float = 15.0) -> tuple[str, str, bool]:
         """确保具备某基因的执行能力，返回 (via, path, is_local)。
 
-        统一语义（规格书 §5/§6）：技能只能由基因持有者声明；能力表未命中时
-        繁殖（父复制基因子集给子，子按所连 HAA/基因划分族系），命中时路由。
+        基因 = 向下可达性（公理 1）：能力表命中 → 路由；缺基因时——
+        自身基因集包含（可调配）→ 无性繁殖子族系；
+        不包含（跨域不可达）→ 抛 GeneNotOwned 沿族系上抛（不繁殖）。
         """
         entry = self.table.find_for_gene(gene)
         if entry is not None:
             return entry["via"], self.path_of(entry["via"]), entry["local"]
+        if gene not in self.genes:
+            raise GeneNotOwned(gene)
         logger.task(f"{self.sandbox_id}: 调配基因 {gene} → 繁殖族系子（复制基因子集）")
         return self._reproduce(gene, wait_ready)
 

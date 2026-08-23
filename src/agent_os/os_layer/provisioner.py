@@ -83,6 +83,11 @@ def write_help_requests(sandbox_path: str, reqs: list[dict]) -> None:
     jsonio.write_json(os.path.join(sandbox_path, C.HELP_REQUESTS_FILE), reqs)
 
 
+def read_help_requests(sandbox_path: str) -> list[dict]:
+    """读子沙箱的求助请求（父=祖先节点据此接管编排）。"""
+    return jsonio.read_json(os.path.join(sandbox_path, C.HELP_REQUESTS_FILE)) or []
+
+
 def read_skills(sandbox_path: str) -> list[dict]:
     return jsonio.read_json(os.path.join(sandbox_path, C.SKILLS_FILE)) or []
 

@@ -80,6 +80,33 @@ def test_delegate_error_propagates(tmp_path):
     th.join(timeout=2)
 
 
+def test_delegate_returns_help_requests_on_raise(tmp_path):
+    """控制流第一定律：子 error + help_requests 非空 = 沿族系上抛，
+    delegate 返回 help 信息由祖先接管（而非当作失败）。"""
+    path = provisioner.create_sandbox(str(tmp_path / "sb_help"), "sb_help",
+                                      C.ROLE_AGENT, "root", "l1", [])
+    task = {"task_id": "t2", "description": "do", "parameters": {}}
+
+    def _simulate():
+        deadline = time.monotonic() + 5
+        inbox = os.path.join(path, C.TASK_INBOX)
+        while time.monotonic() < deadline:
+            if os.path.exists(inbox) and os.path.getsize(inbox) > 0:
+                break
+            time.sleep(0.02)
+        provisioner.write_help_requests(path, [{"task_id": "t2", "gene": "disk_write",
+                                                "path": ["sb_help"]}])
+        provisioner.write_output(path, {"task_id": "t2", "error": "缺基因 disk_write 已上抛"})
+        provisioner.write_state(path, C.ERROR)
+
+    th = threading.Thread(target=_simulate, daemon=True)
+    th.start()
+    out = router.delegate(task, path, timeout=10)
+    assert "help_requests" in out
+    assert out["help_requests"][0]["gene"] == "disk_write"
+    th.join(timeout=2)
+
+
 def test_delegate_ignores_stale_completed(tmp_path):
     """回归：子方残留上一任务 completed/旧 output 时，不得提前返回。"""
     path = provisioner.create_sandbox(str(tmp_path / "sb_stale"), "sb_stale",

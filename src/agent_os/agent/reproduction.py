@@ -38,8 +38,8 @@ class Reproducer:
         entry = self.table.find_for_gene(gene)
         if entry is not None:
             return entry["via"], self.path_of(entry["via"]), entry["local"]
-        # 无性繁殖：向 OS 请求新子沙箱（基因子集 → 新谱系）
-        logger.task(f"{self.sandbox_id}: 缺少基因 {gene} → 无性繁殖")
+        # 无性繁殖（规格书 §6）：父把自己的基因子集复制给新子沙箱，OS 校验子集关系
+        logger.task(f"{self.sandbox_id}: 缺少 {gene} 执行技能 → 无性繁殖（复制基因子集 {[gene]}）")
         rep = self.os.provision(parent_id=self.sandbox_id, role=C.ROLE_AGENT,
                                 genes=[gene])
         cid = rep["sandbox_id"]

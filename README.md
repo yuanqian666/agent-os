@@ -40,7 +40,8 @@ python -m pytest tests/ -v
 
 ## 关键设计决策（与规格书的对齐与偏差）
 
-- **HAA 持久托管**：Math/Disk HAA 由 OS 层创建并跨任务存活（规格书 §7"HAAs 持久"）；Agent 通过 genome 中的基因获得向对应 HAA 写任务的 ACL 权限（基因即访问令牌）。偏差说明：HAAs 不挂在 Root children/ 下（否则 Root 天生具备能力，破坏"缺基因→繁殖"演示语义）。
+- **Root 持有全部基因**（规格书 §5 全局能力索引 / §6 父复制基因子集给子）：Root 的 genome = [math_haa, disk_haa]，但**不声明本地技能**（纯协调者，执行下放）。Root "缺少执行技能"时触发无性繁殖：把自己的基因**子集**复制给新子沙箱（OS 校验子请求基因 ⊆ 父基因集，越权繁殖被拒——防提权）。
+- **HAA 持久托管**：Math/Disk HAA 由 OS 层创建并跨任务存活（规格书 §7"HAAs 持久"）；Agent 通过 genome 中的基因获得向对应 HAA 写任务的 ACL 权限（基因即访问令牌）。偏差说明：HAAs 不挂在 Root children/ 下（否则 Root 天生具备能力，破坏"缺技能→繁殖"演示语义）。
 - **嵌套沙箱**：Agent 子沙箱嵌套于父 `children/` 下（规格书 §3 挂载点语义）；HAA/Root 平铺于沙箱根。
 - **文件化 OS 控制通道**：`sandbox_root/os/requests|replies`（L3↔L4 syscall 边界，符合"一切皆文件"）。
 - **两相握手**：任务下发等待 output.task_id 与 state==completed 双条件，防陈旧状态竞态。

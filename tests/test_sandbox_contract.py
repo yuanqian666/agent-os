@@ -39,7 +39,8 @@ def _make_supervisor(sandbox_root) -> Supervisor:
                 "haa_identifiers": list(haa_ids)}
     sup.registry = {
         INTERFACE_ID: _entry(INTERFACE_ID, C.ROLE_INTERFACE, None),
-        ROOT_ID: _entry(ROOT_ID, C.ROLE_ROOT, INTERFACE_ID),
+        ROOT_ID: _entry(ROOT_ID, C.ROLE_ROOT, INTERFACE_ID,
+                        [C.HAA_MATH, C.HAA_DISK]),  # Root 拥有全部基因
         "child_a": _entry("child_a", C.ROLE_AGENT, ROOT_ID, ["math_haa"]),
         "child_b": _entry("child_b", C.ROLE_AGENT, ROOT_ID, ["disk_haa"]),
         "evil": _entry("evil", C.ROLE_AGENT, ROOT_ID, []),
@@ -91,6 +92,19 @@ def test_acl_haa_gene_is_access_token(sandbox_root):
 def test_acl_unregistered_actor_denied(sandbox_root):
     sup = _make_supervisor(sandbox_root)
     assert not sup.acl_allowed("ghost", ROOT_ID, os.path.join(sandbox_root, ROOT_ID, "task", "inbox.jsonl"))
+
+
+def test_root_holds_all_genes(sandbox_root):
+    """规格书 §5/§6：Root 拥有全部基因；繁殖 = 父复制基因子集，越权繁殖被拒。"""
+    import pytest
+    sup = _make_supervisor(sandbox_root)
+    assert sup._genes_of(ROOT_ID) == {C.GENE_CPU_CALC, C.GENE_DISK_WRITE}
+    # 子 Agent 只能请求父基因的子集：child_b（仅 disk_write）请求 cpu_calc → 拒绝
+    with pytest.raises(ValueError, match="超出父基因集"):
+        sup.provision(parent_id="child_b", role=C.ROLE_AGENT,
+                      genes=[C.GENE_CPU_CALC])
+    # 子集内请求通过基因校验（后续 spawn 由真实进程测试覆盖）
+    assert sup._genes_of("child_b") == {C.GENE_DISK_WRITE}
 
 
 # ---------- schema 契约 ----------

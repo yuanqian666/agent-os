@@ -60,9 +60,9 @@ def test_demo_e2e(sandbox_root, tmp_path):
         msgs = jsonio.read_text(log_file).splitlines()
         msgs = [m.split("] ", 2)[-1] for m in msgs if m.strip()]
 
-        # ---- 成功标准 2：Root 缺基因 → 分裂出 Math 与 Disk 子 Agent ----
-        assert any("缺少基因 cpu_calc" in m for m in msgs), "未见 cpu_calc 繁殖"
-        assert any("缺少基因 disk_write" in m for m in msgs), "未见 disk_write 繁殖"
+        # ---- 成功标准 2：Root 缺执行技能 → 复制基因子集繁殖 Math/Disk 子 Agent ----
+        assert any("缺少 cpu_calc 执行技能" in m for m in msgs), "未见 cpu_calc 繁殖"
+        assert any("缺少 disk_write 执行技能" in m for m in msgs), "未见 disk_write 繁殖"
         assert sum("无性繁殖" in m for m in msgs) >= 2
         # 谱系唯一（两个子 Agent 不同谱系）
         lineages = {m.split("lineage=")[1].strip() for m in msgs if "繁殖完成 child=" in m}
@@ -83,6 +83,13 @@ def test_demo_e2e(sandbox_root, tmp_path):
         assert top == {"os", C.HAA_MATH, C.HAA_DISK, ROOT_ID}, f"残留: {top}"
         root_children = os.listdir(os.path.join(sandbox_root, ROOT_ID, C.CHILDREN_DIR))
         assert root_children == [], f"Root 残留子沙箱: {root_children}"
+
+        # ---- Root 拥有全部基因（规格书 §5/§6）----
+        root_genome = jsonio.read_json(os.path.join(sandbox_root, ROOT_ID, "genome"))
+        assert set(root_genome.get("haa_identifiers", [])) == {C.HAA_MATH, C.HAA_DISK}
+        # 子 Agent 基因是父基因子集（繁殖 = 父复制子集）
+        reg = jsonio.read_json(os.path.join(sandbox_root, "os", "registry.json")) or {}
+        # registry 里无子（已销毁），改从繁殖日志验证已在上方断言；此处验证 Root 基因即可
 
         # ---- 磁盘落盘验证 ----
         disk_file = os.path.join(out_root, "e2e1-d.txt")

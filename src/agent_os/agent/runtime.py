@@ -53,7 +53,10 @@ class AgentRuntime:
 
         self.os = OSClient(self.sandbox_root, self.sandbox_id, timeout_s=timeout)
         self.children: dict[str, str] = {}
-        self.table = SkillTable(declare_local_skills(self.genes, self.lineage))
+        # Root 拥有全部基因但**不声明本地技能**（纯协调者，执行下放）；
+        # 中间 Agent 按 genome 基因声明技能（规格书 §5：能力自下而上聚合）
+        declared = set() if self.role == C.ROLE_ROOT else self.genes
+        self.table = SkillTable(declare_local_skills(declared, self.lineage))
         self.reproducer = Reproducer(self.sandbox_id, self.path,
                                      self.sandbox_root, self.os,
                                      self.table, self.children)

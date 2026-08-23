@@ -65,8 +65,9 @@ class Supervisor:
             self.provision(parent_id=OS_ID, role=C.ROLE_HAA,
                            genes=spec["genes"], haa_name=spec["haa_name"],
                            sandbox_id=spec["sandbox_id"])
+        # Root 拥有全部基因（规格书 §5：Root 持有全局能力索引；§6：父复制基因子集给子）
         self.provision(parent_id=INTERFACE_ID, role=C.ROLE_ROOT,
-                       genes=[], sandbox_id=ROOT_ID)
+                       genes=list(C.ALL_GENES), sandbox_id=ROOT_ID)
         logger.event(f"OS 启动完成：HAAs={[s['sandbox_id'] for s in self._haa_specs]} Root={ROOT_ID}")
 
     def run_loop(self, stop_after_tasks: int | None = None,
@@ -109,6 +110,16 @@ class Supervisor:
         virtual = parent_id in (OS_ID, INTERFACE_ID)
         if not virtual and parent_id not in self.registry:
             raise ValueError(f"父沙箱不存在: {parent_id}")
+
+        # 繁殖 = 父复制基因子集给子（规格书 §6）；子请求超出父基因集 → 拒绝（防提权）
+        if role == C.ROLE_AGENT and not virtual:
+            parent_genes = self._genes_of(parent_id)
+            requested = set(genes)
+            excess = requested - parent_genes
+            if excess:
+                raise ValueError(
+                    f"繁殖拒绝：子请求基因 {sorted(excess)} 超出父基因集 "
+                    f"{sorted(parent_genes)}（基因只能由父复制继承）")
 
         # 基因 → HAA 标识符（genome 存 HAA 标识符与谱系标签）
         haa_ids = [C.GENE_HAA_MAP[g] for g in genes if g in C.GENE_HAA_MAP]
@@ -294,9 +305,9 @@ class Supervisor:
                     os.remove(os.path.join(d, f))
                 except OSError:
                     pass
-        # 重建 Root
+        # 重建 Root（同样持有全部基因：规格书 §5 全局能力索引 / §6 繁殖基因来源）
         self.provision(parent_id=INTERFACE_ID, role=C.ROLE_ROOT,
-                       genes=[], sandbox_id=ROOT_ID)
+                       genes=list(C.ALL_GENES), sandbox_id=ROOT_ID)
         logger.event("OS teardown 完成：Agent 树已销毁，Root 已重建")
 
     # ================= 注册表 =================

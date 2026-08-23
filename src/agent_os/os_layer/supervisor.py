@@ -42,6 +42,8 @@ class Supervisor:
         # 最近销毁的沙箱（面板展示树轨迹：灰显"已销毁"，保留 GONE_TTL 秒）
         self._recent_gone: dict[str, dict] = {}
         self.GONE_TTL = 15.0
+        # root 世代：teardown 重建 root = 新生命周期，旧世代节点不再显示
+        self._root_gen = 0
         self._haa_specs = [
             {"sandbox_id": C.HAA_MATH, "haa_name": C.HAA_MATH,
              "genes": [C.GENE_CPU_CALC]},
@@ -194,6 +196,7 @@ class Supervisor:
             "sandbox_id": sid, "path": path, "role": role,
             "parent_id": parent_id, "lineage_tag": lineage,
             "haa_identifiers": haa_ids, "haa_name": haa_name,
+            "generation": self._root_gen,
             "pid": None, "alive": False, "created_at": datetime.now().isoformat(),
         }
         self.registry[sid] = entry
@@ -389,6 +392,7 @@ class Supervisor:
                                       "parent_id": entry.get("parent_id"),
                                       "lineage_tag": entry.get("lineage_tag"),
                                       "haa_identifiers": entry.get("haa_identifiers", []),
+                                      "generation": entry.get("generation", 0),
                                       "gone_at": time.time()}
             del self.registry[sid]
         # 清空控制区
@@ -403,6 +407,8 @@ class Supervisor:
         self._recent_gone = {k: v for k, v in self._recent_gone.items()
                              if _now - v["gone_at"] < self.GONE_TTL}
         # 重建 Root（同样持有全部基因：规格书 §5 全局能力索引 / §6 繁殖基因来源）
+        # 新 root = 新世代（旧任务的族系子不再属于当前生命周期）
+        self._root_gen += 1
         self.provision(parent_id=INTERFACE_ID, role=C.ROLE_ROOT,
                        genes=list(C.ALL_GENES), sandbox_id=ROOT_ID)
         # 重置持久 HAA 的任务/状态残留（无状态残留原则延伸到 HAA；skills 能力声明保留）

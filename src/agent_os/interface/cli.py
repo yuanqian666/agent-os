@@ -151,6 +151,7 @@ def _make_state_provider(sup, sandbox_root):
                 "parent_id": e.get("parent_id"),
                 "haa_identifiers": e.get("haa_identifiers", []),
                 "lineage_tag": e.get("lineage_tag"),
+                "generation": e.get("generation", 0),
                 "alive": e.get("alive", True),
                 "state": provisioner.read_state(e["path"]),
             })
@@ -160,6 +161,7 @@ def _make_state_provider(sup, sandbox_root):
                           "parent_id": g.get("parent_id"),
                           "haa_identifiers": g.get("haa_identifiers", []),
                           "lineage_tag": g.get("lineage_tag"),
+                          "generation": g.get("generation", 0),
                           "alive": False, "state": "destroyed"})
         return {"nodes": nodes}
 

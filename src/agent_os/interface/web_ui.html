@@ -113,6 +113,13 @@ async function loadState() {
     const alive = new Set();
     nodes.forEach(n => { alive.add(n.sandbox_id); n.gone = false; n.seenAt = now;
                          nodeHistory.set(n.sandbox_id, n); });
+    // 当前世代：最新 root 的世代（无 root 时为 0）
+    const rootNode = nodes.find(n => n.role === "root");
+    currentGen = rootNode ? (rootNode.generation || 0) : currentGen;
+    // 世代切换：清出旧世代节点（HAA 跨世代豁免）
+    nodeHistory.forEach((n, id) => {
+      if (n.role !== "haa" && (n.generation || 0) !== currentGen) nodeHistory.delete(id);
+    });
     nodeHistory.forEach((n, id) => {
       if (!alive.has(id)) {
         if (!n.gone) n.gone = true;
@@ -125,22 +132,29 @@ async function loadState() {
   } catch (e) { /* 服务重启中 */ }
 }
 
-// ---- 显示树构建：完全反映系统当前真实拓扑 ----
-// 空闲（无存活族系子）：root 直连所有 HAA；
-// 任务繁殖出携带基因的存活族系子后：该 HAA 临时挂到族系子下
-// （root 经子 agent 间接连接 HAA）；族系子销毁后 HAA 回挂 root。
+// ---- 显示树构建：完全反映系统真实拓扑（世代 + 本周期承载保持） ----
+// 空闲（当前世代无族系子）：root 直连所有 HAA；
+// 任务繁殖出族系子后：被分配的 HAA 挂到承载它的族系子下（root 经子
+// agent 间接连接 HAA），族系子销毁（灰显）也不撤销——本世代内拓扑保持；
+// teardown 重建新 root = 新世代：旧世代节点清出，HAA 重新直连 root。
+let currentGen = 0;
 function buildDisplayTree() {
   const nodes = [...nodeHistory.values()];
+  // 世代过滤：只保留当前世代节点（HAA 跨世代豁免）
+  const genNodes = nodes.filter(n => n.role === "haa" ||
+              (n.generation || 0) === currentGen);
   const dispParent = n => {
     if (n.role === "haa") {
-      // 只认当前存活的承载族系子（不用历史推断，图随运行逻辑绘出）
-      const carrier = nodes.find(x => x.role === "agent" && x.alive !== false &&
+      // 本世代内：存活族系子优先，否则最近承载者（灰显保持拓扑）
+      const carrier = genNodes.find(x => x.role === "agent" && x.alive !== false &&
+                       (x.haa_identifiers || []).includes(n.sandbox_id))
+        || genNodes.find(x => x.role === "agent" &&
                        (x.haa_identifiers || []).includes(n.sandbox_id));
       return carrier ? carrier.sandbox_id : n.parent_id;
     }
     return n.parent_id;
   };
-  return { nodes, dispParent };
+  return { nodes: genNodes, dispParent };
 }
 
 function isRoot(n, dispParent) {

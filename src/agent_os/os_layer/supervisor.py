@@ -385,7 +385,27 @@ class Supervisor:
         # 重建 Root（同样持有全部基因：规格书 §5 全局能力索引 / §6 繁殖基因来源）
         self.provision(parent_id=INTERFACE_ID, role=C.ROLE_ROOT,
                        genes=list(C.ALL_GENES), sandbox_id=ROOT_ID)
-        logger.event("OS teardown 完成：Agent 树已销毁，Root 已重建")
+        # 重置持久 HAA 的任务/状态残留（无状态残留原则延伸到 HAA；skills 能力声明保留）
+        for sid in keep:
+            if self.registry.get(sid, {}).get("role") == C.ROLE_HAA:
+                self._reset_haa_state(sid)
+        logger.event("OS teardown 完成：Agent 树已销毁，Root 已重建，HAA 状态已重置")
+
+    def _reset_haa_state(self, sid: str) -> None:
+        """任务结束后重置 HAA：清空 task/inbox 与 status 运行态，保留 skills 能力声明。"""
+        entry = self.registry[sid]
+        path = entry["path"]
+        # task：删除 inbox（下次 append 自动重建）
+        try:
+            os.remove(os.path.join(path, C.TASK_INBOX))
+        except OSError:
+            pass
+        # status：重置运行态（state/current_task/output/help_requests）
+        provisioner.write_state(path, C.IDLE)
+        jsonio.write_text(os.path.join(path, C.CURRENT_TASK_FILE), "")
+        jsonio.write_json(os.path.join(path, C.OUTPUT_FILE), {})
+        jsonio.write_json(os.path.join(path, C.HELP_REQUESTS_FILE), [])
+        logger.task(f"HAA {sid}: 任务/状态文件已重置 (skills 能力声明保留)")
 
     # ================= 注册表 =================
     def _write_registry(self) -> None:

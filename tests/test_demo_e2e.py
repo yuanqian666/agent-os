@@ -99,6 +99,18 @@ def test_demo_e2e(sandbox_root, tmp_path):
         root_children = os.listdir(os.path.join(sandbox_root, ROOT_ID, C.CHILDREN_DIR))
         assert root_children == [], f"Root 残留子沙箱: {root_children}"
 
+        # ---- HAA 任务/状态重置：残留清除但能力声明保留 ----
+        for haa in (C.HAA_MATH, C.HAA_DISK):
+            haa_path = os.path.join(sandbox_root, haa)
+            assert not os.path.exists(os.path.join(haa_path, C.TASK_INBOX)), \
+                f"{haa} 的 task/inbox 未清除"
+            assert jsonio.read_text(os.path.join(haa_path, C.STATE_FILE)) == C.IDLE, \
+                f"{haa} 的 state 未重置"
+            assert jsonio.read_json(os.path.join(haa_path, C.OUTPUT_FILE)) == {}, \
+                f"{haa} 的 output 未重置"
+            skills = jsonio.read_json(os.path.join(haa_path, C.SKILLS_FILE)) or []
+            assert skills, f"{haa} 的能力声明不应被清除"
+
         # ---- Root 拥有全部基因（规格书 §5/§6）----
         root_genome = jsonio.read_json(os.path.join(sandbox_root, ROOT_ID, "genome"))
         assert set(root_genome.get("haa_identifiers", [])) == {C.HAA_MATH, C.HAA_DISK}

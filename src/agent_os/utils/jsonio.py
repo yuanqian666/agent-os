@@ -6,7 +6,20 @@
 import json
 import os
 import tempfile
+import time
 from typing import Any
+
+
+def _atomic_replace(tmp: str, path: str, retries: int = 6, delay: float = 0.08) -> None:
+    """os.replace 封装：目标文件可能正被其他进程读取（Windows 无 FILE_SHARE_DELETE
+    时 replace 到被打开文件会 WinError 32）→ 退避重试。"""
+    for attempt in range(retries):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(delay * (attempt + 1))
+    os.replace(tmp, path)  # 最后重试一次，仍失败则抛出
 
 
 def read_json(path: str) -> Any | None:
@@ -28,7 +41,7 @@ def write_json(path: str, obj: Any) -> None:
             json.dump(obj, f, ensure_ascii=False, indent=2)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        _atomic_replace(tmp, path)
     except BaseException:
         try:
             os.remove(tmp)
@@ -84,7 +97,7 @@ def write_text(path: str, text: str) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        _atomic_replace(tmp, path)
     except BaseException:
         try:
             os.remove(tmp)

@@ -61,13 +61,17 @@ def test_demo_e2e(sandbox_root, tmp_path):
         msgs = jsonio.read_text(log_file).splitlines()
         msgs = [m.split("] ", 2)[-1] for m in msgs if m.strip()]
 
-        # ---- 成功标准 2：Root 缺执行技能 → 复制基因子集繁殖 Math/Disk 子 Agent ----
-        assert any("缺少 cpu_calc 执行技能" in m for m in msgs), "未见 cpu_calc 繁殖"
-        assert any("缺少 disk_write 执行技能" in m for m in msgs), "未见 disk_write 繁殖"
-        assert sum("无性繁殖" in m for m in msgs) >= 2
-        # 谱系唯一（两个子 Agent 不同谱系）
-        lineages = {m.split("lineage=")[1].strip() for m in msgs if "繁殖完成 child=" in m}
+        # ---- 成功标准 2：初始拓扑=Root 直连 HAA；Root 作为路由器繁殖执行者（子按基因划分族系） ----
+        assert any("基因 cpu_calc 直连 math_haa，但 Root 不执行 → 繁殖族系子" in m for m in msgs), \
+            "未见 cpu_calc 族系繁殖"
+        assert any("基因 disk_write 直连 disk_haa，但 Root 不执行 → 繁殖族系子" in m for m in msgs), \
+            "未见 disk_write 族系繁殖"
+        assert sum("繁殖完成" in m for m in msgs) >= 2
+        # 谱系按基因划分（两个子 Agent 属于不同基因族系）
+        lineages = {m.split("lineage=")[1].strip()
+                    for m in msgs if "繁殖完成" in m and "lineage=" in m}
         assert len(lineages) == 2
+        assert all("lineage_cpu_calc" in l or "lineage_disk_write" in l for l in lineages)
 
         # ---- 成功标准 3：Root 路由结果给 Disk 分支 ----
         assert any("→ math_haa" in m for m in msgs), "未见 math_haa 路由"
@@ -76,8 +80,8 @@ def test_demo_e2e(sandbox_root, tmp_path):
 
         # ---- 复杂任务：路由器决策 + 复合技能声明（skill=基因组合，说明向上传播） ----
         assert any("[路由器]" in m for m in msgs), "无路由器决策日志"
-        assert any("技能 calc_and_save 不在能力表 → 按基因分解/繁殖" in m for m in msgs), \
-            "未见复杂任务分解决策"
+        assert any("命中复合技能 calc_and_save" in m for m in msgs), \
+            "Root 应命中直连 HAA 聚合出的复合技能"
         assert any("声明复合技能" in m for m in msgs), "未见复合技能声明（能力向上聚合）"
 
         # ---- 成功标准 4：文件事件驱动状态流转 ----
@@ -112,7 +116,9 @@ def test_demo_e2e(sandbox_root, tmp_path):
 def test_demo_two_tasks_in_a_row(sandbox_root, tmp_path, logs):
     """连续两个任务：teardown 重建 Root 后系统仍可工作（HAA 持久）。"""
     out_root = str(tmp_path / "out")
+    log_file = str(tmp_path / "os2.log")
     os.environ["AGENT_OS_OUT_ROOT"] = out_root
+    os.environ["AGENT_OS_LOG_FILE"] = log_file
     sup = None
     try:
         sup, r1 = _run_demo(sandbox_root, TASK)
@@ -123,7 +129,9 @@ def test_demo_two_tasks_in_a_row(sandbox_root, tmp_path, logs):
         t2 = {**TASK, "task_id": "e2e2", "parameters": {"expr": "2+3", "save": True,
                                                      "skills": ["calc_and_save"]}}
         sup2, r2 = _run_demo(sandbox_root, t2)
-        assert r2 is not None
+        if r2 is None:
+            tail = jsonio.read_text(log_file).splitlines()[-30:]
+            raise AssertionError("第二个任务未完成，日志尾部:\n" + "\n".join(tail))
         assert r2["output"]["result"]["value"] == 5
         assert jsonio.read_text(os.path.join(out_root, "e2e2-d.txt")) == "5"
         sup = sup2  # 收尾只停最新 supervisor
@@ -131,3 +139,4 @@ def test_demo_two_tasks_in_a_row(sandbox_root, tmp_path, logs):
         if sup:
             sup.stop()
         os.environ.pop("AGENT_OS_OUT_ROOT", None)
+        os.environ.pop("AGENT_OS_LOG_FILE", None)

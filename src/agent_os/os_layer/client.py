@@ -7,6 +7,7 @@
 """
 import os
 import time
+import uuid
 
 from ..utils import jsonio
 
@@ -30,7 +31,8 @@ class OSClient:
         """发请求并阻塞等待回复。超时抛 TimeoutError。"""
         self._seq += 1
         seq = self._seq
-        name = f"{self.actor}_{seq}"
+        # 文件名带随机后缀：不同进程即使同 actor/seq 也不撞名（防 WinError 32）
+        name = f"{self.actor}_{seq}_{uuid.uuid4().hex[:4]}"
         req = {"seq": seq, "actor_id": self.actor, "cmd": cmd, **kwargs}
         jsonio.write_json(os.path.join(self.req_dir, f"{name}.json"), req)
         reply_path = os.path.join(self.reply_dir, f"{name}.json")

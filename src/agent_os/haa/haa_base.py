@@ -38,6 +38,11 @@ class HAA:
         w = watchers.FileWatcher(self._on_file_event, debounce_ms=150)
         w.watch_file(self.inbox)
         w.start()
+        # HAA 作为伪 Agent 也声明能力说明（供父聚合；skill=基因组合）
+        from ..agent.skill_table import declare_local_skills
+        genome = provisioner.read_genome(self.path)
+        lineage = genome.get("lineage_tag", f"lineage_{self.haa_name}")
+        provisioner.write_skills(self.path, declare_local_skills({self.gene}, lineage))
         provisioner.write_state(self.path, C.IDLE)
         logger.status(f"{self.haa_name}: 启动，等待任务 (gene={self.gene})")
         try:
@@ -83,12 +88,20 @@ class HAA:
 
 
 def haa_main(sandbox_path: str, haa_name: str) -> None:
-    """OS spawn 的 HAA 进程入口。"""
-    from .math_haa import MathHAA
-    from .disk_haa import DiskHAA
-    cls = {"math_haa": MathHAA, "disk_haa": DiskHAA}.get(haa_name)
-    if cls is None:
-        logger.error(f"未知 HAA: {haa_name}")
-        return
-    haa = cls(sandbox_path)
-    haa.run()
+    """OS spawn 的 HAA 进程入口（全局异常防护，绝不静默退出）。"""
+    try:
+        from .math_haa import MathHAA
+        from .disk_haa import DiskHAA
+        cls = {"math_haa": MathHAA, "disk_haa": DiskHAA}.get(haa_name)
+        if cls is None:
+            logger.error(f"未知 HAA: {haa_name}")
+            return
+        haa = cls(sandbox_path)
+        haa.run()
+    except Exception as e:
+        logger.error(f"haa_main 异常退出 {haa_name}: {e}")
+        try:
+            provisioner.write_output(sandbox_path, {"task_id": "?", "error": str(e)})
+            provisioner.write_state(sandbox_path, C.ERROR)
+        except Exception:
+            pass

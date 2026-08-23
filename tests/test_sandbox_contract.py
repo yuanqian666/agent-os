@@ -44,7 +44,8 @@ def _make_supervisor(sandbox_root) -> Supervisor:
         "child_a": _entry("child_a", C.ROLE_AGENT, ROOT_ID, ["math_haa"]),
         "child_b": _entry("child_b", C.ROLE_AGENT, ROOT_ID, ["disk_haa"]),
         "evil": _entry("evil", C.ROLE_AGENT, ROOT_ID, []),
-        C.HAA_MATH: _entry(C.HAA_MATH, C.ROLE_HAA, OS_ID, haa_name=C.HAA_MATH),
+        C.HAA_MATH: _entry(C.HAA_MATH, C.ROLE_HAA, ROOT_ID, haa_name=C.HAA_MATH),
+        C.HAA_DISK: _entry(C.HAA_DISK, C.ROLE_HAA, ROOT_ID, haa_name=C.HAA_DISK),
     }
     return sup
 

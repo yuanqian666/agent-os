@@ -10,6 +10,7 @@
 """
 import os
 import shutil
+import subprocess
 import time
 from datetime import datetime
 
@@ -47,10 +48,11 @@ class Supervisor:
 
     # ================= 生命周期 =================
     def start(self) -> None:
-        """清场（杀掉旧注册进程、清空沙箱根），再全新供给 HAAs 与 Root。"""
+        """清场（杀掉旧注册进程与残留沙箱进程、清空沙箱根），再全新供给 Root 与 HAAs。"""
         if os.path.exists(self.root):
             self._load_registry()
             self._kill_registered_processes()
+            self._kill_stale_processes()  # 按命令行路径强杀残留（防孤儿抢任务/文件锁）
             shutil.rmtree(self.root, ignore_errors=True)
         os.makedirs(self.req_dir, exist_ok=True)
         os.makedirs(self.reply_dir, exist_ok=True)
@@ -61,14 +63,16 @@ class Supervisor:
             "haa_identifiers": [], "haa_name": None, "pid": None,
             "alive": True, "created_at": datetime.now().isoformat(),
         }
-        for spec in self._haa_specs:
-            self.provision(parent_id=OS_ID, role=C.ROLE_HAA,
-                           genes=spec["genes"], haa_name=spec["haa_name"],
-                           sandbox_id=spec["sandbox_id"])
-        # Root 拥有全部基因（规格书 §5：Root 持有全局能力索引；§6：父复制基因子集给子）
+        # 初始拓扑（规格书 §8）：界面层 → Root（直连所有 HAA，全树基因来源）→ HAA。
+        # 先供给 Root（携带全部基因），再把 HAA 挂载为 Root 的逻辑子。
         self.provision(parent_id=INTERFACE_ID, role=C.ROLE_ROOT,
                        genes=list(C.ALL_GENES), sandbox_id=ROOT_ID)
-        logger.event(f"OS 启动完成：HAAs={[s['sandbox_id'] for s in self._haa_specs]} Root={ROOT_ID}")
+        for spec in self._haa_specs:
+            self.provision(parent_id=ROOT_ID, role=C.ROLE_HAA,
+                           genes=spec["genes"], haa_name=spec["haa_name"],
+                           sandbox_id=spec["sandbox_id"], flat=True)
+        logger.event(f"OS 启动完成：Root={ROOT_ID} 直连 HAAs="
+                     f"{[s['sandbox_id'] for s in self._haa_specs]}")
 
     def run_loop(self, stop_after_tasks: int | None = None,
                  run_timeout_s: float | None = None) -> None:
@@ -96,14 +100,40 @@ class Supervisor:
                     return
             time.sleep(self.poll)
 
+    def _kill_stale_processes(self) -> None:
+        """按命令行匹配沙箱根路径，强杀所有残留沙箱进程（python/pythonw）。
+
+        registry 只记录已知进程；孤儿进程（如 teardown 后未死透的 root/子）
+        会抢新任务或持有文件句柄，导致 WinError 32 / 任务超时。
+        """
+        if not os.path.isdir(self.root):
+            return
+        ps = ("powershell -NoProfile -Command "
+              "Get-CimInstance Win32_Process "
+              "-Filter \"Name='python.exe' or Name='pythonw.exe'\" "
+              f"| Where-Object {{ $_.CommandLine -like '*{self.root}*' }} "
+              "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+        try:
+            subprocess.run(ps, capture_output=True, timeout=60)
+        except Exception as e:
+            logger.warn(f"残留进程清理失败: {e}")
+
     def stop(self) -> None:
         """停止所有沙箱进程（用于测试收尾）。"""
         self._kill_registered_processes()
+        self._kill_stale_processes()
 
     # ================= 供给 =================
     def provision(self, parent_id: str, role: str, genes: list[str],
                   haa_name: str | None = None,
-                  sandbox_id: str | None = None) -> dict:
+                  sandbox_id: str | None = None,
+                  flat: bool = False) -> dict:
+        """供给沙箱。
+
+        flat=True：物理目录平铺于沙箱根，但 registry 逻辑父为 parent_id
+        （用于 HAA：物理上独立持久，逻辑上是 Root 的直接子，避免 teardown
+        误删与目录移动破坏 watcher）。
+        """
         sid = sandbox_id or C.new_sandbox_id("sb")
         if sid in self.registry:
             raise ValueError(f"沙箱已存在: {sid}")
@@ -123,10 +153,17 @@ class Supervisor:
 
         # 基因 → HAA 标识符（genome 存 HAA 标识符与谱系标签）
         haa_ids = [C.GENE_HAA_MAP[g] for g in genes if g in C.GENE_HAA_MAP]
-        lineage = C.new_lineage_tag() if sid != ROOT_ID else "lineage_root"
+        # 谱系按基因划分（规格书 §5：LINEAGE = 独特基因组合分支）
+        if sid == ROOT_ID:
+            lineage = "lineage_root"
+        elif genes:
+            hex6 = C.new_lineage_tag().split("_")[1][:6]
+            lineage = f"lineage_{'+'.join(sorted(set(genes)))}_{hex6}"
+        else:
+            lineage = C.new_lineage_tag()
 
-        # 路径：OS 托管（HAA/Root）平铺于沙箱根；Agent 嵌套于父 children/ 下
-        if virtual:
+        # 路径：HAA（flat）与 OS 托管平铺于沙箱根；Agent 嵌套于父 children/ 下
+        if flat or virtual:
             path = os.path.join(self.root, sid)
         else:
             parent_path = self.registry[parent_id]["path"]
@@ -240,7 +277,10 @@ class Supervisor:
                 continue
             actor = req.get("actor_id")
             seq = req.get("seq")
-            reply_name = f"{actor}_{seq}.json" if actor and seq else None
+            # 回复文件名 = 请求文件名（去 .json 后缀）+ .json：请求名含随机后缀，
+            # 必须按请求文件名回写，否则请求方（按同名轮询）永远等不到回复
+            base = name[:-5] if name.endswith(".json") else name
+            reply_name = f"{base}.json" if actor and seq else None
             ok, result = self._dispatch(req)
             if reply_name:
                 try:

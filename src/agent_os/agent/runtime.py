@@ -59,7 +59,8 @@ class AgentRuntime:
         self.table = SkillTable(declare_local_skills(declared, self.lineage))
         self.reproducer = Reproducer(self.sandbox_id, self.path,
                                      self.sandbox_root, self.os,
-                                     self.table, self.children)
+                                     self.table, self.children,
+                                     is_root=(self.role == C.ROLE_ROOT))
 
         self._processed: set[str] = set()
         self._loop = TaskLoop(self._on_event)
@@ -79,8 +80,22 @@ class AgentRuntime:
         for cid, cpath in self._scan_children():
             self.table.add_child(cid, cpath)
             self._loop.watch_child_status(cpath)
+        # 初始拓扑（规格书 §8）：Root 直连所有 HAA（全树基因来源）→ 按 genome 聚合 HAA 基础技能
+        for haa_id in self.genome.get("haa_identifiers", []):
+            haa_path = os.path.join(self.sandbox_root, haa_id)
+            if os.path.isdir(haa_path):
+                self.children[haa_id] = haa_path
+                self.table.add_child(haa_id, haa_path)
+                self._loop.watch_child_status(haa_path)
         self._publish_skills()
-        self._loop.start()
+        try:
+            self._loop.start()
+        except Exception as e:
+            logger.error(f"{self.sandbox_id}: watcher 启动失败 → 进程退出 {e}")
+            provisioner.write_output(self.path, {"task_id": "?",
+                                                 "error": f"watcher 启动失败: {e}"})
+            provisioner.write_state(self.path, C.ERROR)
+            return
         provisioner.write_state(self.path, C.IDLE)
         logger.status(f"{self.sandbox_id} ({self.role}, lineage={self.lineage}, genes={sorted(self.genes)}): 启动")
         try:
@@ -90,6 +105,9 @@ class AgentRuntime:
                 for path, etype in events:
                     self._handle_event(path)
                 self._drain_inbox()  # 周期性兜底排空（watchdog 事件可能丢失）
+        except Exception as e:
+            logger.error(f"{self.sandbox_id}: 主循环异常退出 {e}")
+            provisioner.write_state(self.path, C.ERROR)
         finally:
             self._loop.stop()
 
@@ -241,6 +259,14 @@ def provisioner_jsonl(sandbox_path: str) -> list[dict]:
 
 
 def runtime_main(sandbox_path: str) -> None:
-    """OS spawn 的 Agent/Root 进程入口。"""
-    rt = AgentRuntime(sandbox_path)
-    rt.run()
+    """OS spawn 的 Agent/Root 进程入口（全局异常防护，绝不静默退出）。"""
+    try:
+        rt = AgentRuntime(sandbox_path)
+        rt.run()
+    except Exception as e:
+        logger.error(f"runtime_main 异常退出 {os.path.basename(sandbox_path)}: {e}")
+        try:
+            provisioner.write_output(sandbox_path, {"task_id": "?", "error": str(e)})
+            provisioner.write_state(sandbox_path, C.ERROR)
+        except Exception:
+            pass

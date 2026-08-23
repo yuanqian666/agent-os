@@ -118,6 +118,15 @@ def test_demo_e2e(sandbox_root, tmp_path):
         reg = jsonio.read_json(os.path.join(sandbox_root, "os", "registry.json")) or {}
         # registry 里无子（已销毁），改从繁殖日志验证已在上方断言；此处验证 Root 基因即可
 
+        # ---- 运行记录：任务完成后追加到 runtime_log/tasks.jsonl（跨任务持久） ----
+        log_lines = jsonio.read_jsonl(os.path.join(tmp_path, "runtime_log", "tasks.jsonl"))
+        assert log_lines, "运行记录为空"
+        last = log_lines[-1]
+        assert last["task_id"] == "e2e1"
+        assert last["result"]["value"] == 36
+        assert len(last["lineages"]) == 2  # cpu_calc + disk_write 两个基因族系
+        assert "calc_and_save" in last["composite_skills"]
+
         # ---- 磁盘落盘验证 ----
         disk_file = os.path.join(out_root, "e2e1-d.txt")
         assert os.path.isfile(disk_file)

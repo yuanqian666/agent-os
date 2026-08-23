@@ -45,6 +45,11 @@ class Supervisor:
             {"sandbox_id": C.HAA_DISK, "haa_name": C.HAA_DISK,
              "genes": [C.GENE_DISK_WRITE]},
         ]
+        # 运行记录（跨任务持久）：存于沙箱根同级 runtime_log/，start() 的
+        # wipe 不会触及，每次任务完成后追加一条
+        self.log_dir = os.path.join(os.path.dirname(os.path.abspath(self.root)),
+                                    "runtime_log")
+        self.log_path = os.path.join(self.log_dir, "tasks.jsonl")
 
     # ================= 生命周期 =================
     def start(self) -> None:
@@ -342,6 +347,7 @@ class Supervisor:
                 jsonio.write_json(os.path.join(self.root, LAST_RESULT),
                                   {"sandbox_id": sid, "time": datetime.now().isoformat(),
                                    "output": final})
+                self._record_task(final)  # 追加运行记录（teardown 前收集信息）
                 self._n_completed += 1
                 logger.task(f"任务完成上报 {sid} → 销毁 Agent 树")
                 self.teardown_tree()
@@ -390,6 +396,32 @@ class Supervisor:
             if self.registry.get(sid, {}).get("role") == C.ROLE_HAA:
                 self._reset_haa_state(sid)
         logger.event("OS teardown 完成：Agent 树已销毁，Root 已重建，HAA 状态已重置")
+
+    def _record_task(self, final: dict) -> None:
+        """每次任务完成后追加一条运行记录（跨任务持久保留）。
+
+        记录：完成时间、任务与结果、本次繁殖的族系（基因划分）、
+        Root 聚合声明的能力（复合技能）。
+        """
+        try:
+            os.makedirs(self.log_dir, exist_ok=True)
+            lineages = sorted({e["lineage_tag"] for e in self.registry.values()
+                               if e.get("lineage_tag") and e["role"] == C.ROLE_AGENT})
+            root_skills = provisioner.read_skills(
+                os.path.join(self.root, ROOT_ID))
+            composites = [s.get("skill_id") for s in root_skills
+                          if s.get("composite")]
+            record = {
+                "time": datetime.now().isoformat(timespec="seconds"),
+                **final,
+                "lineages": lineages,
+                "composite_skills": composites,
+            }
+            jsonio.append_jsonl(self.log_path, record)
+            logger.task(f"运行记录已追加: {self.log_path} "
+                        f"(lineages={len(lineages)}, skills={composites})")
+        except Exception as e:
+            logger.warn(f"运行记录写入失败: {e}")
 
     def _reset_haa_state(self, sid: str) -> None:
         """任务结束后重置 HAA：清空 task/inbox 与 status 运行态，保留 skills 能力声明。"""

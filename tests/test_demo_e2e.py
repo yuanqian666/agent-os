@@ -61,12 +61,16 @@ def test_demo_e2e(sandbox_root, tmp_path):
         msgs = jsonio.read_text(log_file).splitlines()
         msgs = [m.split("] ", 2)[-1] for m in msgs if m.strip()]
 
-        # ---- 成功标准 2：初始拓扑=Root 直连 HAA；Root 作为路由器繁殖执行者（子按基因划分族系） ----
-        assert any("基因 cpu_calc 直连 math_haa，但 Root 不执行 → 繁殖族系子" in m for m in msgs), \
-            "未见 cpu_calc 族系繁殖"
-        assert any("基因 disk_write 直连 disk_haa，但 Root 不执行 → 繁殖族系子" in m for m in msgs), \
-            "未见 disk_write 族系繁殖"
+        # ---- 成功标准 2：系统初始无技能，Root 分析任务→调配基因繁殖族系子（子按基因划分族系） ----
+        assert any("分析任务：需要复合技能 calc_and_save" in m for m in msgs), \
+            "未见任务分析日志"
+        assert any("分析完成 → 需求基因" in m for m in msgs), "未见需求基因分析"
+        assert any("调配基因 cpu_calc" in m for m in msgs), "未见 cpu_calc 调配繁殖"
+        assert any("调配基因 disk_write" in m for m in msgs), "未见 disk_write 调配繁殖"
         assert sum("繁殖完成" in m for m in msgs) >= 2
+        # 影子请求回归：每个基因只供给一个沙箱（残留进程并发会产生重复供给）
+        assert sum("供给沙箱 sb_" in m for m in msgs) == 2, \
+            f"出现影子供给（残留进程并发）: {[m for m in msgs if '供给沙箱 sb_' in m]}"
         # 谱系按基因划分（两个子 Agent 属于不同基因族系）
         lineages = {m.split("lineage=")[1].strip()
                     for m in msgs if "繁殖完成" in m and "lineage=" in m}
@@ -78,11 +82,11 @@ def test_demo_e2e(sandbox_root, tmp_path):
         assert any("→ disk_haa" in m for m in msgs), "未见 disk_haa 路由"
         assert any("写盘 36" in m for m in msgs), "数学结果未注入写盘子任务"
 
-        # ---- 复杂任务：路由器决策 + 复合技能声明（skill=基因组合，说明向上传播） ----
+        # ---- 复杂任务：路由器分析决策 + 能力建立（skill=基因组合，说明向上传播） ----
         assert any("[路由器]" in m for m in msgs), "无路由器决策日志"
-        assert any("命中复合技能 calc_and_save" in m for m in msgs), \
-            "Root 应命中直连 HAA 聚合出的复合技能"
-        assert any("声明复合技能" in m for m in msgs), "未见复合技能声明（能力向上聚合）"
+        assert any("能力覆盖 ['cpu_calc', 'disk_write'] → 声明复合技能" in m for m in msgs), \
+            "调配基因后应建立复合技能（能力自下而上聚合）"
+        assert any("声明复合技能" in m for m in msgs), "未见复合技能声明"
 
         # ---- 成功标准 4：文件事件驱动状态流转 ----
         assert any("文件事件" in m for m in msgs), "无文件事件日志"

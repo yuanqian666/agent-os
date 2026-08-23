@@ -13,15 +13,13 @@ from ..utils import logger
 
 class Reproducer:
     def __init__(self, sandbox_id: str, sandbox_path: str, sandbox_root: str,
-                 os_client: OSClient, skill_table, children: dict[str, str],
-                 is_root: bool = False):
+                 os_client: OSClient, skill_table, children: dict[str, str]):
         self.sandbox_id = sandbox_id
         self.path = sandbox_path
         self.root = sandbox_root
         self.os = os_client
         self.table = skill_table
         self.children = children  # child_id → child_path
-        self.is_root = is_root
 
     # ---------- 路径解析 ----------
     def path_of(self, via: str) -> str:
@@ -38,21 +36,13 @@ class Reproducer:
     def ensure_gene(self, gene: str, wait_ready: float = 15.0) -> tuple[str, str, bool]:
         """确保具备某基因的执行能力，返回 (via, path, is_local)。
 
-        路由器语义（规格书 §8）：Root 直连 HAA 拥有全部基因与基础技能索引，
-        但**不亲自执行**——命中 HAA 时也繁殖族系子（子按所连 HAA/基因划分族系），
-        由族系子路由到 HAA 执行。普通 Agent 命中 HAA 时直接路由。
+        统一语义（规格书 §5/§6）：技能只能由基因持有者声明；能力表未命中时
+        繁殖（父复制基因子集给子，子按所连 HAA/基因划分族系），命中时路由。
         """
         entry = self.table.find_for_gene(gene)
         if entry is not None:
-            via = entry["via"]
-            if via in (C.HAA_MATH, C.HAA_DISK):
-                if self.is_root:
-                    logger.task(f"{self.sandbox_id} [路由器]: 基因 {gene} 直连 "
-                                f"{via}，但 Root 不执行 → 繁殖族系子")
-                    return self._reproduce(gene, wait_ready)
-                return via, self.path_of(via), True
-            return via, self.path_of(via), entry["local"]
-        logger.task(f"{self.sandbox_id}: 缺少 {gene} 执行技能 → 无性繁殖（复制基因子集 [{gene}]）")
+            return entry["via"], self.path_of(entry["via"]), entry["local"]
+        logger.task(f"{self.sandbox_id}: 调配基因 {gene} → 繁殖族系子（复制基因子集）")
         return self._reproduce(gene, wait_ready)
 
     def _reproduce(self, gene: str, wait_ready: float) -> tuple[str, str, bool]:

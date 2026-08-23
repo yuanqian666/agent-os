@@ -14,7 +14,6 @@ import subprocess
 import time
 from datetime import datetime
 
-import multiprocessing
 
 from .. import constants as C
 from ..utils import jsonio, logger
@@ -37,8 +36,9 @@ class Supervisor:
         self.req_dir = os.path.join(self.root, REQ_DIR)
         self.reply_dir = os.path.join(self.root, REPLY_DIR)
         self.registry: dict[str, dict] = {}
-        self._processes: dict[str, multiprocessing.Process] = {}
+        self._processes: dict[str, subprocess.Popen] = {}
         self._n_completed = 0
+        self._processed_req: set[str] = set()  # 已处理请求 req_id（防请求文件残留被重复执行）
         self._haa_specs = [
             {"sandbox_id": C.HAA_MATH, "haa_name": C.HAA_MATH,
              "genes": [C.GENE_CPU_CALC]},
@@ -48,11 +48,13 @@ class Supervisor:
 
     # ================= 生命周期 =================
     def start(self) -> None:
-        """清场（杀掉旧注册进程与残留沙箱进程、清空沙箱根），再全新供给 Root 与 HAAs。"""
+        """清场（杀掉残留沙箱进程与旧注册进程、清空沙箱根），再全新供给 Root 与 HAAs。"""
+        # 无条件先杀本进程的所有 python 子进程：残留 root 不在 registry、
+        # 命令行不含沙箱路径，只能按父进程 PID 识别（这是唯一可靠的清场）
+        self._kill_stale_processes()
         if os.path.exists(self.root):
             self._load_registry()
             self._kill_registered_processes()
-            self._kill_stale_processes()  # 按命令行路径强杀残留（防孤儿抢任务/文件锁）
             shutil.rmtree(self.root, ignore_errors=True)
         os.makedirs(self.req_dir, exist_ok=True)
         os.makedirs(self.reply_dir, exist_ok=True)
@@ -101,22 +103,31 @@ class Supervisor:
             time.sleep(self.poll)
 
     def _kill_stale_processes(self) -> None:
-        """按命令行匹配沙箱根路径，强杀所有残留沙箱进程（python/pythonw）。
+        """按命令行（含沙箱根路径）强杀残留沙箱进程。
 
-        registry 只记录已知进程；孤儿进程（如 teardown 后未死透的 root/子）
-        会抢新任务或持有文件句柄，导致 WinError 32 / 任务超时。
+        spawn 命令行携带 sandbox_root 路径（subprocess 启动），跨运行也能识别；
+        同时按父进程 PID 杀本进程直接 spawn 的进程（双保险）。
+        残留 root 会周期 drain 抢新任务导致并发，必须清场。
         """
-        if not os.path.isdir(self.root):
-            return
-        ps = ("powershell -NoProfile -Command "
-              "Get-CimInstance Win32_Process "
-              "-Filter \"Name='python.exe' or Name='pythonw.exe'\" "
-              f"| Where-Object {{ $_.CommandLine -like '*{self.root}*' }} "
-              "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+        if os.path.isdir(self.root):
+            ps1 = ("powershell -NoProfile -Command "
+                   "Get-CimInstance Win32_Process "
+                   "-Filter \"Name='python.exe' or Name='pythonw.exe'\" "
+                   f"| Where-Object {{ $_.CommandLine -like '*{self.root}*' }} "
+                   "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+            try:
+                subprocess.run(ps1, capture_output=True, timeout=60)
+            except Exception as e:
+                logger.warn(f"残留进程清理失败(命令行): {e}")
+        ps2 = ("powershell -NoProfile -Command "
+               "Get-CimInstance Win32_Process "
+               "-Filter \"Name='python.exe' or Name='pythonw.exe'\" "
+               f"| Where-Object {{ $_.ParentProcessId -eq {os.getpid()} }} "
+               "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
         try:
-            subprocess.run(ps, capture_output=True, timeout=60)
+            subprocess.run(ps2, capture_output=True, timeout=60)
         except Exception as e:
-            logger.warn(f"残留进程清理失败: {e}")
+            logger.warn(f"残留进程清理失败(父PID): {e}")
 
     def stop(self) -> None:
         """停止所有沙箱进程（用于测试收尾）。"""
@@ -188,17 +199,24 @@ class Supervisor:
                 "genes": list(genes)}
 
     def _spawn(self, sandbox_id: str) -> None:
+        """用 subprocess 启动沙箱进程（而非 multiprocessing.Process）。
+
+        命令行携带沙箱路径：_kill_stale_processes 可按命令行跨运行清场
+        （multiprocessing spawn 的命令行是固定的 spawn_main 串，无法识别归属）。
+        """
+        import sys as _sys
         entry = self.registry[sandbox_id]
         path = entry["path"]
         if entry["role"] == C.ROLE_HAA:
-            from ..haa.haa_base import haa_main  # 延迟导入防循环
-            target, args = haa_main, (path, entry["haa_name"])
+            code = ("import sys; from agent_os.haa.haa_base import haa_main; "
+                    "haa_main(sys.argv[1], sys.argv[2])")
+            args = [_sys.executable, "-c", code, path, entry["haa_name"]]
         else:
-            from ..agent.runtime import runtime_main  # 延迟导入防循环
-            target, args = runtime_main, (path,)
-        p = multiprocessing.Process(target=target, args=args, daemon=True,
-                                    name=f"sb-{sandbox_id}")
-        p.start()
+            code = ("import sys; from agent_os.agent.runtime import runtime_main; "
+                    "runtime_main(sys.argv[1])")
+            args = [_sys.executable, "-c", code, path]
+        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        p = subprocess.Popen(args, creationflags=flags)
         self._processes[sandbox_id] = p
         entry["pid"] = p.pid
         entry["alive"] = True
@@ -214,10 +232,13 @@ class Supervisor:
                 except OSError:
                     pass
         for p in self._processes.values():
-            if p.is_alive():
+            if p.poll() is None:
                 p.terminate()
         for p in self._processes.values():
-            p.join(timeout=2)
+            try:
+                p.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
         self._processes.clear()
 
     # ================= ACL =================
@@ -302,10 +323,18 @@ class Supervisor:
 
     def _dispatch(self, req: dict) -> tuple[bool, dict]:
         cmd = req.get("cmd")
+        req_id = req.get("req_id")
+        # 非幂等命令去重：请求文件删除失败（Windows 占用）时残留文件会被再次读到，
+        # 若无去重会导致重复 provision（孤儿沙箱）/ 重复 teardown
+        if cmd in ("provision", "report_done"):
+            if req_id and req_id in self._processed_req:
+                return True, {"already": True}
         try:
             if cmd == "provision":
                 r = self.provision(parent_id=req["parent_id"], role=req["role"],
                                    genes=req.get("genes", []))
+                if req_id:
+                    self._processed_req.add(req_id)
                 return True, r
             if cmd == "report_done":
                 sid = req.get("sandbox_id")
@@ -316,6 +345,8 @@ class Supervisor:
                 self._n_completed += 1
                 logger.task(f"任务完成上报 {sid} → 销毁 Agent 树")
                 self.teardown_tree()
+                if req_id:
+                    self._processed_req.add(req_id)
                 return True, {"ok": True}
             if cmd == "acl_check":
                 allowed = self.acl_allowed(req.get("actor_id"),
@@ -336,9 +367,12 @@ class Supervisor:
             if sid in keep:
                 continue
             p = self._processes.pop(sid, None)
-            if p and p.is_alive():
+            if p and p.poll() is None:
                 p.terminate()
-                p.join(timeout=2)
+                try:
+                    p.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
             shutil.rmtree(entry["path"], ignore_errors=True)
             del self.registry[sid]
         # 清空控制区

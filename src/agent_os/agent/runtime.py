@@ -17,7 +17,7 @@ from ..os_layer.client import OSClient
 from ..utils import logger
 from . import router
 from .reproduction import Reproducer
-from .skill_table import SkillTable, declare_local_skills
+from .skill_table import COMPOSITE_SKILLS, SkillTable, declare_local_skills
 from .task_loop import TaskLoop
 
 DEFAULT_TIMEOUT = 30.0
@@ -53,14 +53,14 @@ class AgentRuntime:
 
         self.os = OSClient(self.sandbox_root, self.sandbox_id, timeout_s=timeout)
         self.children: dict[str, str] = {}
-        # Root 拥有全部基因但**不声明本地技能**（纯协调者，执行下放）；
-        # 中间 Agent 按 genome 基因声明技能（规格书 §5：能力自下而上聚合）
+        # 技能 = 基因组合的编排说明，只能由基因持有者声明后向上聚合。
+        # Root 持有全部基因（来源）但**不声明技能**：系统启动时不带任何技能，
+        # 必须由 Root 分析任务 → 调配基因（繁殖族系子）→ 子声明 → 聚合建立。
         declared = set() if self.role == C.ROLE_ROOT else self.genes
         self.table = SkillTable(declare_local_skills(declared, self.lineage))
         self.reproducer = Reproducer(self.sandbox_id, self.path,
                                      self.sandbox_root, self.os,
-                                     self.table, self.children,
-                                     is_root=(self.role == C.ROLE_ROOT))
+                                     self.table, self.children)
 
         self._processed: set[str] = set()
         self._loop = TaskLoop(self._on_event)
@@ -80,13 +80,6 @@ class AgentRuntime:
         for cid, cpath in self._scan_children():
             self.table.add_child(cid, cpath)
             self._loop.watch_child_status(cpath)
-        # 初始拓扑（规格书 §8）：Root 直连所有 HAA（全树基因来源）→ 按 genome 聚合 HAA 基础技能
-        for haa_id in self.genome.get("haa_identifiers", []):
-            haa_path = os.path.join(self.sandbox_root, haa_id)
-            if os.path.isdir(haa_path):
-                self.children[haa_id] = haa_path
-                self.table.add_child(haa_id, haa_path)
-                self._loop.watch_child_status(haa_path)
         self._publish_skills()
         try:
             self._loop.start()
@@ -99,12 +92,13 @@ class AgentRuntime:
         provisioner.write_state(self.path, C.IDLE)
         logger.status(f"{self.sandbox_id} ({self.role}, lineage={self.lineage}, genes={sorted(self.genes)}): 启动")
         try:
-            self._drain_inbox()  # 排空启动前已写入的任务（防漏事件）
+            self._drain_inbox()  # 启动排空：防 watcher 启动前已写入的任务漏处理
             while not self._stop.is_set():
                 events = self._loop.pop_all(timeout=0.2)
                 for path, etype in events:
                     self._handle_event(path)
-                self._drain_inbox()  # 周期性兜底排空（watchdog 事件可能丢失）
+                # 注意：不做无条件周期 drain——残留进程（watcher 句柄已失效）
+                # 会因此抢读新任务导致并发；事件丢失由启动排空 + 事件驱动覆盖
         except Exception as e:
             logger.error(f"{self.sandbox_id}: 主循环异常退出 {e}")
             provisioner.write_state(self.path, C.ERROR)
@@ -200,22 +194,22 @@ class AgentRuntime:
         params = dict(task.get("parameters", {}))
         desc = task.get("description", "")
 
-        # 复杂任务：显式声明技能需求（skill = 基因组合的编排说明）
+        # 分析任务（规格书 §8）：复杂任务声明技能需求（skill=基因组合的编排说明）
         requested = params.get("skills") or []
         for sid in requested:
             entry = self.table.find_skill(sid, self.sandbox_id, self.lineage)
             if entry:
-                via = entry["via"]
-                if via == self.sandbox_id:
-                    logger.task(f"{self.sandbox_id} [路由器]: 命中复合技能 {sid} "
-                                f"(编排 {entry['skill'].get('sub_skills')}) → 分解执行")
-                else:
-                    logger.task(f"{self.sandbox_id} [路由器]: 技能 {sid} 由子 {via} 提供 → 路由")
+                logger.task(f"{self.sandbox_id} [路由器]: 命中已建立能力 {sid} "
+                            f"→ 路由/分解执行")
             else:
-                logger.task(f"{self.sandbox_id} [路由器]: 技能 {sid} 不在能力表 "
-                            f"→ 按基因分解/繁殖")
+                genes_hint = COMPOSITE_SKILLS.get(sid, {}).get("required_genes")
+                logger.task(f"{self.sandbox_id} [路由器]: 分析任务：需要复合技能 {sid} "
+                            f"(能力未建立，基因组合需求 {genes_hint}) → 调配基因")
 
         genes = router.required_genes(params, desc)
+        if not genes:
+            raise ValueError(f"无法从参数推断需求基因: {params}")
+        logger.task(f"{self.sandbox_id} [路由器]: 分析完成 → 需求基因 {sorted(genes)}")
         if not genes:
             raise ValueError(f"无法从参数推断需求基因: {params}")
         results: dict[str, dict] = {}

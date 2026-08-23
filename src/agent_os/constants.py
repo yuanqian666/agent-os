@@ -33,11 +33,16 @@ STATES = (IDLE, RUNNING, COMPLETED, ERROR)
 # ---------- 基因（HAA 标识符 ↔ 能力基因） ----------
 GENE_CPU_CALC = "cpu_calc"
 GENE_DISK_WRITE = "disk_write"
-ALL_GENES = (GENE_CPU_CALC, GENE_DISK_WRITE)
+GENE_FILE_READ = "file_read"
+GENE_LOG_WRITE = "log_write"
+ALL_GENES = (GENE_CPU_CALC, GENE_DISK_WRITE, GENE_FILE_READ, GENE_LOG_WRITE)
 
 HAA_MATH = "math_haa"              # 提供 cpu_calc
 HAA_DISK = "disk_haa"              # 提供 disk_write
-HAA_GENE_MAP = {HAA_MATH: GENE_CPU_CALC, HAA_DISK: GENE_DISK_WRITE}
+HAA_FILE_READ = "file_read_haa"    # 提供 file_read
+HAA_LOG = "log_haa"                # 提供 log_write
+HAA_GENE_MAP = {HAA_MATH: GENE_CPU_CALC, HAA_DISK: GENE_DISK_WRITE,
+                HAA_FILE_READ: GENE_FILE_READ, HAA_LOG: GENE_LOG_WRITE}
 GENE_HAA_MAP = {v: k for k, v in HAA_GENE_MAP.items()}
 
 # ---------- 角色 ----------

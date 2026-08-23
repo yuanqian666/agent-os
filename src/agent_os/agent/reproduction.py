@@ -41,7 +41,7 @@ class Reproducer:
             return self.path
         if via in self.children:
             return self.children[via]
-        if via in (C.HAA_MATH, C.HAA_DISK):
+        if via in C.HAA_GENE_MAP:  # HAA 标识符 → 沙箱根下的持久沙箱
             return os.path.join(self.root, via)
         raise KeyError(f"未知路由目标 {via}")
 

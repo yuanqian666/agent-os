@@ -1,5 +1,12 @@
 {
   "task_id": "t1",
-  "description": "Calculate (5+7)*3 and save result to disk",
-  "parameters": { "expr": "(5+7)*3", "save": true, "skills": ["calc_and_save"] }
+  "description": "Read expression from expr.txt, calculate, save and log",
+  "parameters": {
+    "read": "expr.txt",
+    "save": true,
+    "log": true,
+    "skills": [
+      "read_calc_save_log"
+    ]
+  }
 }

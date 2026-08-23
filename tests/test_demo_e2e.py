@@ -95,12 +95,13 @@ def test_demo_e2e(sandbox_root, tmp_path):
 
         # ---- 成功标准 5：任务完成后 OS 物理清除所有沙箱 ----
         top = set(os.listdir(sandbox_root))
-        assert top == {"os", C.HAA_MATH, C.HAA_DISK, ROOT_ID}, f"残留: {top}"
+        assert top == {"os", C.HAA_MATH, C.HAA_DISK, C.HAA_FILE_READ, C.HAA_LOG,
+                       ROOT_ID}, f"残留: {top}"
         root_children = os.listdir(os.path.join(sandbox_root, ROOT_ID, C.CHILDREN_DIR))
         assert root_children == [], f"Root 残留子沙箱: {root_children}"
 
         # ---- HAA 任务/状态重置：残留清除但能力声明保留 ----
-        for haa in (C.HAA_MATH, C.HAA_DISK):
+        for haa in (C.HAA_MATH, C.HAA_DISK, C.HAA_FILE_READ, C.HAA_LOG):
             haa_path = os.path.join(sandbox_root, haa)
             assert not os.path.exists(os.path.join(haa_path, C.TASK_INBOX)), \
                 f"{haa} 的 task/inbox 未清除"
@@ -113,7 +114,7 @@ def test_demo_e2e(sandbox_root, tmp_path):
 
         # ---- Root 拥有全部基因（规格书 §5/§6）----
         root_genome = jsonio.read_json(os.path.join(sandbox_root, ROOT_ID, "genome"))
-        assert set(root_genome.get("haa_identifiers", [])) == {C.HAA_MATH, C.HAA_DISK}
+        assert set(root_genome.get("haa_identifiers", [])) == {C.HAA_MATH, C.HAA_DISK, C.HAA_FILE_READ, C.HAA_LOG}
         # 子 Agent 基因是父基因子集（繁殖 = 父复制子集）
         reg = jsonio.read_json(os.path.join(sandbox_root, "os", "registry.json")) or {}
         # registry 里无子（已销毁），改从繁殖日志验证已在上方断言；此处验证 Root 基因即可
@@ -136,6 +137,48 @@ def test_demo_e2e(sandbox_root, tmp_path):
             sup.stop()
         os.environ.pop("AGENT_OS_OUT_ROOT", None)
         os.environ.pop("AGENT_OS_LOG_FILE", None)
+
+
+def test_demo_multi_haa_chain(sandbox_root, tmp_path, logs):
+    """多 HAA 链式协作（4 个 HAA 同时被调用）：读文件 → 计算 → 保存 → 记日志。"""
+    out_root = str(tmp_path / "out")
+    data_root = str(tmp_path / "data")
+    log_file = str(tmp_path / "os.log")
+    os.makedirs(data_root, exist_ok=True)
+    with open(os.path.join(data_root, "expr.txt"), "w", encoding="utf-8") as f:
+        f.write("5+7")
+    os.environ["AGENT_OS_OUT_ROOT"] = out_root
+    os.environ["AGENT_OS_DATA_ROOT"] = data_root
+    os.environ["AGENT_OS_LOG_FILE"] = log_file
+    sup = None
+    try:
+        task = {"task_id": "mhaa1",
+                "description": "Read expression from file, calculate, save and log",
+                "parameters": {"read": "expr.txt", "save": True, "log": True,
+                               "skills": ["read_calc_save_log"]}}
+        sup, result = _run_demo(sandbox_root, task)
+        assert result is not None, "多 HAA 任务未完成"
+        out = result["output"]
+        # 链式结果：读到的表达式被注入计算
+        assert out["result"]["value"] == 12
+        assert out["result"]["file"] == "mhaa1-d.txt"
+        assert out["result"]["content"] == "5+7"   # file_read 结果
+        assert out["result"]["log"] == "system.log"
+        # 4 个 HAA 都被调用（4 个基因族系繁殖）
+        msgs = jsonio.read_text(log_file).splitlines()
+        msgs = [m.split("] ", 2)[-1] for m in msgs if m.strip()]
+        assert sum("供给沙箱 sb_" in m for m in msgs) == 4, "应繁殖 4 个族系分支"
+        assert any("file_read_haa" in m for m in msgs)
+        assert any("log_haa" in m for m in msgs)
+        # 落盘 + 日志文件
+        assert jsonio.read_text(os.path.join(out_root, "mhaa1-d.txt")) == "12"
+        log_txt = jsonio.read_text(os.path.join(out_root, "system.log"))
+        assert "result=12" in log_txt
+    finally:
+        if sup:
+            sup.stop()
+        for k in ("AGENT_OS_OUT_ROOT", "AGENT_OS_DATA_ROOT", "AGENT_OS_LOG_FILE"):
+            os.environ.pop(k, None)
 
 
 def test_demo_two_tasks_in_a_row(sandbox_root, tmp_path, logs):

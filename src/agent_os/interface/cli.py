@@ -23,12 +23,21 @@ _EXPR_RE = re.compile(
     r"calculate\s+(?P<expr>[0-9+\-*/().\s]+?)\s+and\s+save", re.IGNORECASE)
 _CN_RE = re.compile(
     r"计算\s*(?P<expr>[0-9+\-*/().\s]+?)\s*(?:并|然后)?(?:保存|写入|存)?(?:到)?\s*磁盘", re.IGNORECASE)
+# 多 HAA 演示句：读文件 + 计算 + 保存 + 记日志
+# 语序兼容："read ... from expr.txt" / "read expr.txt" / "从 expr.txt 读取" / "读取 expr.txt"
+_READ_FROM_RE = re.compile(r"(?:read|读取).*?(?:from|从)\s*(?P<file>[\w.\-]+\.\w+)",
+                           re.IGNORECASE | re.DOTALL)
+_READ_FROM_CN_RE = re.compile(r"从\s*(?P<file>[\w.\-]+\.\w+).*?(?:读取|读)",
+                              re.IGNORECASE | re.DOTALL)
+_READ_RE = re.compile(r"(?:read|读取)\s+(?P<file>[\w.\-]+\.\w+)", re.IGNORECASE)
+_LOG_RE = re.compile(r"(?:log|日志|记录)", re.IGNORECASE)
 
 
 def parse_demo_sentence(text: str) -> dict | None:
     """把演示句翻译为结构化任务；无法解析返回 None。
 
-    复杂任务：显式声明复合技能 calc_and_save（skill = 基因组合的编排说明）。
+    复杂任务：显式声明复合技能 calc_and_save / read_calc_save_log
+    （skill = 基因组合的编排说明）。
     """
     text = text.strip()
     for rx in (_EXPR_RE, _CN_RE):
@@ -41,6 +50,19 @@ def parse_demo_sentence(text: str) -> dict | None:
                 "parameters": {"expr": expr, "save": True,
                                "skills": ["calc_and_save"]},
             }
+    # 多 HAA 链式：读取文件 → 计算 → 保存 →（可选）记日志
+    m_read = (_READ_FROM_RE.search(text) or _READ_FROM_CN_RE.search(text)
+              or _READ_RE.search(text))
+    if m_read:
+        params = {"read": m_read.group("file"), "save": True}
+        skills = ["read_calc_save_log"]
+        if _LOG_RE.search(text):
+            params["log"] = True
+        return {
+            "task_id": f"t{uuid.uuid4().hex[:6]}",
+            "description": text,
+            "parameters": {**params, "skills": skills},
+        }
     return None
 
 

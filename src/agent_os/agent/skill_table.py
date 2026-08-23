@@ -23,6 +23,16 @@ _GENE_SKILLS = {
         next_hop=C.HAA_DISK, lineage_tag=lineage,
         required_genes=[C.GENE_DISK_WRITE],
         input_schema={"content": "string"}, output_schema={"file": "string"}),
+    C.GENE_FILE_READ: lambda lineage: make_skill(
+        "file_read", "Read a text file from the data directory",
+        next_hop=C.HAA_FILE_READ, lineage_tag=lineage,
+        required_genes=[C.GENE_FILE_READ],
+        input_schema={"path": "string"}, output_schema={"content": "string"}),
+    C.GENE_LOG_WRITE: lambda lineage: make_skill(
+        "log_write", "Append a timestamped entry to the system log",
+        next_hop=C.HAA_LOG, lineage_tag=lineage,
+        required_genes=[C.GENE_LOG_WRITE],
+        input_schema={"content": "string"}, output_schema={"log": "string"}),
 }
 
 
@@ -44,6 +54,16 @@ COMPOSITE_SKILLS = {
         "input_schema": {"expr": "string", "save": "bool"},
         "output_schema": {"value": "number", "file": "string"},
         "sub_skills": ["math_eval", "disk_write"],
+    },
+    "read_calc_save_log": {
+        "description": "Read an expression from file, calculate it, save to disk and "
+                       "append a log entry (orchestrates file_read + math_eval + "
+                       "disk_write + log_write)",
+        "required_genes": [C.GENE_FILE_READ, C.GENE_CPU_CALC,
+                            C.GENE_DISK_WRITE, C.GENE_LOG_WRITE],
+        "input_schema": {"read": "string", "save": "bool", "log": "bool"},
+        "output_schema": {"value": "number", "file": "string", "log": "string"},
+        "sub_skills": ["file_read", "math_eval", "disk_write", "log_write"],
     },
 }
 

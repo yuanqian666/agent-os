@@ -225,19 +225,32 @@ class AgentRuntime:
         if not genes:
             raise ValueError(f"无法从参数推断需求基因: {params}")
         logger.task(f"{self.sandbox_id} [路由器]: 分析完成 → 需求基因 {sorted(genes)}")
-        if not genes:
-            raise ValueError(f"无法从参数推断需求基因: {params}")
-        results: dict[str, dict] = {}
-        # 按基因顺序处理：Math 结果注入 Disk 子任务（Root 路由结果给 Child B）
-        for gene in sorted(genes):
+
+        # 链式编排（多 HAA 协作）：按依赖序执行，前序 HAA 结果注入后续子任务参数
+        ctx: dict[str, dict] = {}
+        for gene in router.GENE_ORDER:
+            if gene not in genes:
+                continue
+            # --- 前序结果注入（每基因独立子参数，互不污染） ---
+            calc_val = ctx.get(C.GENE_CPU_CALC, {}).get("value")
+            read_content = ctx.get(C.GENE_FILE_READ, {}).get("content")
+            sub_params = {"_gene": gene}
+            if gene == C.GENE_CPU_CALC:
+                sub_params["expr"] = params.get("expr") or read_content
+                if read_content and not params.get("expr"):
+                    logger.task(f"{self.sandbox_id} [路由器]: 注入读文件结果 "
+                                f"expr={read_content!r}")
+            elif gene == C.GENE_DISK_WRITE:
+                sub_params["content"] = (params.get("content")
+                                         if "content" in params else str(calc_val or ""))
+            elif gene == C.GENE_LOG_WRITE:
+                sub_params["content"] = (f"result={calc_val}" if calc_val is not None
+                                         else params.get("content"))
+            elif gene == C.GENE_FILE_READ:
+                sub_params["path"] = params.get("read") or params.get("path")
             via, path, is_local = self.reproducer.ensure_gene(gene)
-            self._refresh_capabilities()  # 能力表变化后重新编排/发布复合技能
-            # Math 结果注入 Disk 子任务（Root 路由结果给 Child B）
-            if gene == C.GENE_DISK_WRITE and "content" not in params:
-                math_val = router.aggregate_by_gene(results, C.GENE_CPU_CALC).get("value")
-                if math_val is not None:
-                    params["content"] = str(math_val)
-            subtask = router.build_subtask(task, gene, params, leaf=is_local)
+            self._refresh_capabilities()
+            subtask = router.build_subtask(task, gene, sub_params, leaf=is_local)
             self._steps.append({"task": subtask["task_id"], "gene": gene,
                                 "via": os.path.basename(path),
                                 "step": len(self._steps) + 1})
@@ -261,10 +274,10 @@ class AgentRuntime:
                     res2 = router.delegate(sub2, p2, timeout=self.timeout)
                     if "help_requests" in res2:
                         raise RuntimeError("上抛未被祖先解决（基因缺失链）")
-                    results[g] = res2
+                    ctx[g] = res2.get("result") or {}
             else:
-                results[gene] = out
-        return self._aggregate(results)
+                ctx[gene] = out.get("result") or {}
+        return self._aggregate(ctx)
 
     def _refresh_capabilities(self) -> None:
         """能力表变化后：重新编排复合技能并发布（技能说明自下而上聚合传播）。"""
@@ -275,14 +288,13 @@ class AgentRuntime:
                         f"{sorted(self.table.covered_genes())} "
                         f"→ 声明复合技能 {[c['skill_id'] for c in composites]}")
 
-    def _aggregate(self, results: dict[str, dict]) -> dict:
-        """聚合子结果（MVP 演示口径）。"""
-        math = router.aggregate_by_gene(results, C.GENE_CPU_CALC)
-        disk = router.aggregate_by_gene(results, C.GENE_DISK_WRITE)
+    def _aggregate(self, ctx: dict[str, dict]) -> dict:
+        """聚合子结果（多 HAA 演示口径）。"""
         return {
-            "value": math.get("value"),
-            "file": disk.get("file"),
-            "content": disk.get("content"),
+            "value": ctx.get(C.GENE_CPU_CALC, {}).get("value"),
+            "file": ctx.get(C.GENE_DISK_WRITE, {}).get("file"),
+            "content": ctx.get(C.GENE_FILE_READ, {}).get("content"),
+            "log": ctx.get(C.GENE_LOG_WRITE, {}).get("log"),
         }
 
 

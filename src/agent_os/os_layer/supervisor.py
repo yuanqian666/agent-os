@@ -44,6 +44,10 @@ class Supervisor:
              "genes": [C.GENE_CPU_CALC]},
             {"sandbox_id": C.HAA_DISK, "haa_name": C.HAA_DISK,
              "genes": [C.GENE_DISK_WRITE]},
+            {"sandbox_id": C.HAA_FILE_READ, "haa_name": C.HAA_FILE_READ,
+             "genes": [C.GENE_FILE_READ]},
+            {"sandbox_id": C.HAA_LOG, "haa_name": C.HAA_LOG,
+             "genes": [C.GENE_LOG_WRITE]},
         ]
         # 运行记录（跨任务持久）：存于沙箱根同级 runtime_log/，start() 的
         # wipe 不会触及，每次任务完成后追加一条

@@ -17,7 +17,7 @@ from agent_os.interface.cli import parse_demo_sentence, submit_task, wait_result
 from agent_os.lifecycle.bootstrap import bootstrap
 from agent_os.utils import jsonio, logger
 
-DEMO_SENTENCE = "Calculate (5+7)*3 and save result to disk"
+DEMO_SENTENCE = "Read expression from expr.txt, calculate and save result to disk, then log it"
 
 
 def load_task(args) -> tuple[dict, str]:
@@ -43,6 +43,14 @@ def main():
 
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sandbox_root = os.path.abspath(args.sandbox_root or os.path.join(repo, "sandbox_root"))
+
+    # 多 HAA 演示：预置数据文件（expr.txt 内容 "5+7"）
+    data_dir = os.path.join(repo, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    expr_file = os.path.join(data_dir, "expr.txt")
+    if not os.path.exists(expr_file):
+        with open(expr_file, "w", encoding="utf-8") as f:
+            f.write("5+7")
 
     task, desc = load_task(args)
 

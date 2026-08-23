@@ -23,12 +23,15 @@ def test_required_genes():
 def test_build_subtask_suffix_and_leaf():
     parent = {"task_id": "t1", "description": "d", "parameters": {"expr": "5+7"}}
     sub = router.build_subtask(parent, C.GENE_CPU_CALC, {"expr": "5+7"}, leaf=False)
-    assert sub["task_id"] == "t1-m" and sub["parameters"] == {"expr": "5+7"}
+    assert sub["task_id"] == "t1-m" and sub["parameters"]["expr"] == "5+7"
+    assert sub["parameters"]["_gene"] == C.GENE_CPU_CALC
     sub2 = router.build_subtask(parent, C.GENE_CPU_CALC, {"expr": "5+7"}, leaf=True)
     assert sub2["task_id"] == "t1"  # 子→HAA 复用 task_id
+    assert sub2["parameters"]["_gene"] == C.GENE_CPU_CALC
     sub3 = router.build_subtask({"task_id": "t1", "description": "d", "parameters": {}},
                                 C.GENE_DISK_WRITE, {"content": "12"}, leaf=False)
-    assert sub3["task_id"] == "t1-d" and sub3["parameters"] == {"content": "12"}
+    assert sub3["task_id"] == "t1-d" and sub3["parameters"]["content"] == "12"
+    assert sub3["parameters"]["_gene"] == C.GENE_DISK_WRITE
 
 
 # ---------- delegate：模拟子沙箱完成 ----------

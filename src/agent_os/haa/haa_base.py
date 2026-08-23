@@ -100,7 +100,10 @@ def haa_main(sandbox_path: str, haa_name: str) -> None:
     try:
         from .math_haa import MathHAA
         from .disk_haa import DiskHAA
-        cls = {"math_haa": MathHAA, "disk_haa": DiskHAA}.get(haa_name)
+        from .file_read_haa import FileReadHAA
+        from .log_haa import LogHAA
+        cls = {"math_haa": MathHAA, "disk_haa": DiskHAA,
+               "file_read_haa": FileReadHAA, "log_haa": LogHAA}.get(haa_name)
         if cls is None:
             logger.error(f"未知 HAA: {haa_name}")
             return

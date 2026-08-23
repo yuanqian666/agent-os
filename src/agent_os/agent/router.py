@@ -14,18 +14,35 @@ from ..os_layer import provisioner
 from ..schemas import make_task
 from ..utils import jsonio, logger
 
-_SUFFIX = {C.GENE_CPU_CALC: "m", C.GENE_DISK_WRITE: "d"}
+_SUFFIX = {C.GENE_CPU_CALC: "m", C.GENE_DISK_WRITE: "d",
+           C.GENE_FILE_READ: "r", C.GENE_LOG_WRITE: "l"}
 
 
 def required_genes(parameters: dict, description: str = "") -> set[str]:
     """按任务参数推断所需基因（MVP 确定性 mock 逻辑）。"""
     genes: set[str] = set()
     if isinstance(parameters, dict):
+        if parameters.get("_gene") in C.ALL_GENES:
+            return {parameters["_gene"]}  # 子任务显式基因线索（消歧 content 等泛用参数）
         if "expr" in parameters:
             genes.add(C.GENE_CPU_CALC)
         if parameters.get("save") or "content" in parameters:
             genes.add(C.GENE_DISK_WRITE)
+        if parameters.get("read") or parameters.get("path"):
+            genes.add(C.GENE_FILE_READ)
+        if parameters.get("log"):
+            genes.add(C.GENE_LOG_WRITE)
+        # 显式声明的复合技能（skill=基因组合）展开为其基因集合
+        from .skill_table import COMPOSITE_SKILLS
+        for sid in parameters.get("skills") or []:
+            spec = COMPOSITE_SKILLS.get(sid)
+            if spec:
+                genes |= set(spec["required_genes"])
     return genes
+
+
+# 依赖顺序：链式任务按此序执行（前序结果注入后续参数）
+GENE_ORDER = (C.GENE_FILE_READ, C.GENE_CPU_CALC, C.GENE_DISK_WRITE, C.GENE_LOG_WRITE)
 
 
 def build_subtask(parent_task: dict, gene: str, params: dict, leaf: bool = False) -> dict:
@@ -35,12 +52,23 @@ def build_subtask(parent_task: dict, gene: str, params: dict, leaf: bool = False
         return make_task(
             tid if leaf else f"{tid}-{_SUFFIX[gene]}",
             f"计算 {params.get('expr')}",
-            {"expr": params.get("expr")})
+            {"_gene": gene, "expr": params.get("expr")})
     if gene == C.GENE_DISK_WRITE:
         return make_task(
             tid if leaf else f"{tid}-{_SUFFIX[gene]}",
             f"写盘 {params.get('content')}",
-            {"content": params.get("content")})
+            {"_gene": gene, "content": params.get("content")})
+    if gene == C.GENE_FILE_READ:
+        rel = params.get("path") or params.get("read")
+        return make_task(
+            tid if leaf else f"{tid}-{_SUFFIX[gene]}",
+            f"读取文件 {rel}",
+            {"_gene": gene, "path": rel})
+    if gene == C.GENE_LOG_WRITE:
+        return make_task(
+            tid if leaf else f"{tid}-{_SUFFIX[gene]}",
+            f"记录日志 {params.get('content')}",
+            {"_gene": gene, "content": params.get("content")})
     raise ValueError(f"未知基因 {gene}")
 
 

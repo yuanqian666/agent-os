@@ -5,6 +5,7 @@
 演示任务：Calculate 5+7 and save result to disk
 """
 import argparse
+import json
 import os
 import sys
 import threading
@@ -19,8 +20,22 @@ from agent_os.utils import jsonio, logger
 DEMO_SENTENCE = "Calculate (5+7)*3 and save result to disk"
 
 
+def load_task(args) -> tuple[dict, str]:
+    """加载任务：--input 读 JSON 文件（自定义测试样例）；否则用演示句。返回 (task, 描述)。"""
+    if args.input:
+        with open(args.input, "r", encoding="utf-8") as f:
+            task = json.load(f)
+        desc = f"自定义样例 {os.path.basename(args.input)}"
+        return task, desc
+    task = parse_demo_sentence(DEMO_SENTENCE)
+    assert task, "演示句解析失败"
+    return task, DEMO_SENTENCE
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--input", default=None,
+                    help="自定义任务 JSON 文件（默认 scripts/demo_input.json 格式），不传则跑演示句")
     ap.add_argument("--sandbox-root", default=None,
                     help="沙箱根目录（默认 <repo>/sandbox_root）")
     ap.add_argument("--timeout", type=float, default=90.0, help="总超时（秒）")
@@ -29,11 +44,10 @@ def main():
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     sandbox_root = os.path.abspath(args.sandbox_root or os.path.join(repo, "sandbox_root"))
 
-    task = parse_demo_sentence(DEMO_SENTENCE)
-    assert task, "演示句解析失败"
+    task, desc = load_task(args)
 
     print("=" * 70)
-    print(f"Agent OS MVP 演示启动  |  任务: {DEMO_SENTENCE}")
+    print(f"Agent OS MVP 演示启动  |  任务: {desc}")
     print(f"沙箱根: {sandbox_root}")
     print("=" * 70)
 

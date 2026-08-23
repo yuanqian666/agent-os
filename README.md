@@ -24,7 +24,9 @@ python scripts/run_demo.py
 # 交互式 CLI（演示句 或 JSON 任务，exit 退出；默认内嵌 Web 可视化面板）
 python -m agent_os.interface.cli
 # 启动后浏览器打开 http://127.0.0.1:8710/ 实时查看：
-#   沙箱树拓扑（Root/HAAs/族系子动态生长）、工作流日志流、运行历史
+#   自上而下 Agent 树（root 在顶，连线向下）：初始 root 直连 HAA；
+#   繁殖后 HAA 动态挂载到携带其基因的族系子下（root 经子 agent 间接
+#   连接 HAA，符合公链语义 HAA→族系子→Root）；已销毁节点灰显保留 15s
 # 参数：--no-web 关闭面板；--verbose 显示全部日志（含 EVENT 文件事件） --sandbox-root sandbox_root
 
 # 测试（19 用例：契约/ACL/路由/繁殖/聚合/端到端）

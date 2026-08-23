@@ -12,37 +12,58 @@
   @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
   .card { background: #161d2e; border: 1px solid #26314a; border-radius: 8px; padding: 12px; }
   .card h2 { font-size: 14px; color: #9db4d6; margin-bottom: 10px; border-bottom: 1px solid #26314a; padding-bottom: 6px; }
-  /* ===== 树形（嵌套 + 连接线） ===== */
-  .tree { font-size: 13px; }
-  .tree ul { list-style: none; padding-left: 22px; margin-left: 8px; border-left: 2px solid #2c3a58; }
-  .tree > ul { border-left: none; padding-left: 0; margin-left: 0; }
-  .tree li { margin: 6px 0; position: relative; }
-  .tree li::before { content: ""; position: absolute; left: -16px; top: 50%; width: 14px; height: 2px; background: #2c3a58; }
-  .tree > ul > li::before { display: none; }
-  .node { display: inline-flex; align-items: center; gap: 8px; background: #1d2942; border: 1px solid #2e4066; border-radius: 6px; padding: 5px 10px; transition: all 0.3s; }
-  .node .dot { width: 10px; height: 10px; border-radius: 50%; background: #5b6b85; flex-shrink: 0; }
+
+  /* ===== 自上而下的树（组织结构图） ===== */
+  .tree-wrap { overflow-x: auto; padding: 8px 0 16px; }
+  .tree { display: flex; justify-content: center; font-size: 12px; }
+  .tree ul { display: flex; padding-top: 24px; position: relative; justify-content: center; }
+  .tree li { display: flex; flex-direction: column; align-items: center; list-style: none;
+             padding: 24px 6px 0; position: relative; }
+  /* 连接线：子节点上方竖线 + 兄弟横线 */
+  .tree li::before, .tree li::after { content: ''; position: absolute; top: 0; right: 50%;
+             border-top: 2px solid #2c3a58; width: 50%; height: 24px; }
+  .tree li::after { right: auto; left: 50%; border-left: 2px solid #2c3a58; }
+  .tree li:only-child::before, .tree li:only-child::after { display: none; }
+  .tree li:only-child { padding-top: 0; }
+  .tree li:first-child::before, .tree li:last-child::after { border: 0 none; }
+  .tree li:last-child::before { border-right: 2px solid #2c3a58; border-radius: 0 6px 0 0; }
+  .tree li:first-child::after { border-radius: 6px 0 0 0; }
+  .tree ul ul::before { content: ''; position: absolute; top: 0; left: 50%;
+             border-left: 2px solid #2c3a58; width: 0; height: 24px; }
+  .tree ul:first-child > li::before, .tree ul:first-child > li::after { display: none; }
+  /* 根节点上方无线 */
+  .tree > ul { padding-top: 0; }
+  .tree > ul::before, .tree > ul > li::before, .tree > ul > li::after { display: none; }
+
+  .node { display: inline-flex; flex-direction: column; align-items: center; gap: 4px;
+          background: #1d2942; border: 1px solid #2e4066; border-radius: 8px;
+          padding: 6px 14px; min-width: 96px; transition: all 0.3s; }
+  .node .row { display: flex; align-items: center; gap: 6px; }
+  .node .dot { width: 9px; height: 9px; border-radius: 50%; background: #5b6b85; flex-shrink: 0; }
   .node .role { font-weight: bold; }
   .role-root { color: #ffb86b; } .role-agent { color: #6fd0ff; }
   .role-haa { color: #ff7b9c; } .role-interface { color: #9db4d6; }
-  .node .meta { color: #7a8699; font-size: 11px; }
-  .node .gene { color: #7ee787; font-size: 11px; }
+  .node .id { color: #d8e0f0; font-family: Consolas, monospace; font-size: 11px; }
+  .node .meta { color: #7a8699; font-size: 10px; }
+  .node .gene { color: #7ee787; font-size: 10px; }
+  .node .lin { color: #5b6b85; font-size: 10px; }
   /* 状态 */
   .st-idle .dot { background: #5b6b85; }
   .st-running .dot { background: #ffb86b; animation: pulse 1s infinite; }
   .st-completed .dot { background: #7ee787; }
-  .st-error .dot { background: #ff6b6b; }
-  .st-error .dot { animation: pulse 0.5s infinite; }
-  .node.gone { opacity: 0.35; border-style: dashed; }
-  .node.gone::after { content: "（已销毁）"; color: #5b6b85; font-size: 10px; }
+  .st-error .dot { background: #ff6b6b; animation: pulse 0.5s infinite; }
   @keyframes pulse { 0% {opacity: 1;} 50% {opacity: 0.3;} 100% {opacity: 1;} }
   .node.spawn { animation: spawn 0.6s ease-out; }
-  @keyframes spawn { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes spawn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .node.gone { opacity: 0.35; border-style: dashed; }
+  .node.gone::after { content: "已销毁"; color: #5b6b85; font-size: 9px; }
+  .tree li.gone-branch::before, .tree li.gone-branch::after { border-color: #1c2740; }
+
   /* 日志 */
   #logs { height: 380px; overflow-y: auto; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; }
   .lv-EVENT { color: #5b6b85; } .lv-TASK { color: #6fd0ff; }
   .lv-STATUS { color: #7ee787; } .lv-INFO { color: #9db4d6; }
   .lv-ERROR { color: #ff6b6b; } .lv-WARN { color: #ffb86b; }
-  /* 历史 */
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #222c44; }
   th { color: #9db4d6; }
@@ -52,7 +73,7 @@
 </head>
 <body>
 <h1>Agent OS 可视化面板</h1>
-<div class="sub">递归沙箱 · 文件即一切 · 族系=任务拆解 · 基因=公链可达 · 上报顺族系 · 下放顺公链</div>
+<div class="sub">自上而下 Agent 树 · 上报顺族系 · 下放顺公链（HAA→族系子→Root）</div>
 <div class="statusbar">
   <span>沙箱数: <b id="cnt">0</b></span>
   <span>Root 状态: <b id="rootstate">-</b></span>
@@ -61,8 +82,8 @@
 </div>
 <div class="grid">
   <div class="card">
-    <h2>Agent 树（动态）</h2>
-    <div class="tree" id="tree"><span style="color:#5b6b85">等待系统启动...</span></div>
+    <h2>Agent 树（自上而下，动态）</h2>
+    <div class="tree-wrap"><div class="tree" id="tree"><span style="color:#5b6b85">等待系统启动...</span></div></div>
   </div>
   <div class="card">
     <h2>工作流日志（实时）</h2>
@@ -78,8 +99,8 @@
 </div>
 <script>
 let lastLogId = 0;
-let nodeHistory = new Map();   // sandbox_id -> 节点（含已销毁的历史）
-const GONE_TTL = 15000;        // 已销毁节点保留 15s
+let nodeHistory = new Map();   // sandbox_id -> 节点
+const GONE_TTL = 15000;
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -89,13 +110,9 @@ async function loadState() {
     const nodes = data.nodes || [];
     document.getElementById("cnt").textContent = nodes.length;
     const now = Date.now();
-    // 更新历史：现有节点刷新；消失节点标记 gone
     const alive = new Set();
-    nodes.forEach(n => {
-      alive.add(n.sandbox_id);
-      n.gone = false; n.seenAt = now;
-      nodeHistory.set(n.sandbox_id, n);
-    });
+    nodes.forEach(n => { alive.add(n.sandbox_id); n.gone = false; n.seenAt = now;
+                         nodeHistory.set(n.sandbox_id, n); });
     nodeHistory.forEach((n, id) => {
       if (!alive.has(id)) {
         if (!n.gone) n.gone = true;
@@ -108,35 +125,59 @@ async function loadState() {
   } catch (e) { /* 服务重启中 */ }
 }
 
-function childrenOf(parentId) {
-  return [...nodeHistory.values()].filter(n => (n.parent_id || "") === (parentId || ""));
+// ---- 显示树构建：HAA 动态挂载到携带其基因的族系子下 ----
+// 初始：root 直连 HAA；root 繁殖出携带基因的族系子后，该 HAA 的
+// 显示父变为族系子（root 经子 agent 间接连接 HAA，符合公链语义）。
+function buildDisplayTree() {
+  const nodes = [...nodeHistory.values()];
+  // HAA → 携带其基因的存活族系子（没有则保持 registry 父 = root）
+  const haaCarrier = {};
+  nodes.filter(n => n.role === "haa").forEach(haa => {
+    // 载体必须是在存活（alive）的族系子；已销毁（alive=false）不能承载
+    const carrier = nodes.find(n => n.role === "agent" && n.alive !== false &&
+                     (n.haa_identifiers || []).includes(haa.sandbox_id));
+    haaCarrier[haa.sandbox_id] = carrier ? carrier.sandbox_id : null;
+  });
+  // 显示父：HAA → carrier 或 registry parent；agent → registry parent
+  const dispParent = n => n.role === "haa"
+      ? (haaCarrier[n.sandbox_id] || n.parent_id)
+      : n.parent_id;
+  return { nodes, dispParent };
 }
 
-function isRoot(n) {
-  const p = n.parent_id;
+function isRoot(n, dispParent) {
+  const p = dispParent(n);
   return !p || p === "interface" || p === "os" || !nodeHistory.has(p);
 }
 
-function renderNode(n) {
-  const kids = childrenOf(n.sandbox_id);
+function childrenOf(parentId, dispParent) {
+  return [...nodeHistory.values()].filter(n => dispParent(n) === parentId);
+}
+
+function renderNode(n, dispParent) {
+  const kids = childrenOf(n.sandbox_id, dispParent);
   const st = n.gone ? "gone" : ("st-" + (n.state || "idle"));
-  const cls = "role-" + n.role;
-  const gene = (n.haa_identifiers || []).length ? `<span class="gene">[${esc((n.haa_identifiers||[]).join(","))}]</span>` : "";
-  const lin = n.lineage_tag ? `<span class="meta">${esc(n.lineage_tag)}</span>` : "";
-  const kidsHtml = kids.length ? "<ul>" + kids.map(renderNode).join("") + "</ul>" : "";
   const spawn = n.seenAt && (Date.now() - n.seenAt < 700) ? " spawn" : "";
-  return `<li><div class="node ${st}${spawn}"><span class="dot"></span>` +
-    `<span class="role ${cls}">${esc(n.role)}</span><span>${esc(n.sandbox_id)}</span>` +
-    `${gene}${lin}</div>${kidsHtml}</li>`;
+  const genes = (n.haa_identifiers || []).length
+      ? `<span class="gene">[${esc((n.haa_identifiers||[]).join(","))}]</span>` : "";
+  const lin = n.lineage_tag ? `<span class="lin">${esc(n.lineage_tag)}</span>` : "";
+  const stateTxt = n.gone ? "" : (n.state || "");
+  const kidsHtml = kids.length
+      ? "<ul>" + kids.map(k => renderNode(k, dispParent)).join("") + "</ul>" : "";
+  return `<li><div class="node ${st}${spawn}"><div class="row"><span class="dot"></span>` +
+    `<span class="role role-${n.role}">${esc(n.role)}</span></div>` +
+    `<span class="id">${esc(n.sandbox_id)}</span>${genes}${lin}` +
+    `<span class="meta">${esc(stateTxt)}</span></div>${kidsHtml}</li>`;
 }
 
 function renderTree() {
-  const roots = [...nodeHistory.values()].filter(isRoot);
+  const { nodes, dispParent } = buildDisplayTree();
+  const roots = nodes.filter(n => isRoot(n, dispParent));
   if (!roots.length) {
     document.getElementById("tree").innerHTML = '<span style="color:#5b6b85">（空）</span>';
     return;
   }
-  document.getElementById("tree").innerHTML = "<ul>" + roots.map(renderNode).join("") + "</ul>";
+  document.getElementById("tree").innerHTML = "<ul>" + roots.map(r => renderNode(r, dispParent)).join("") + "</ul>";
 }
 
 async function loadLogs() {
@@ -154,7 +195,7 @@ async function loadLogs() {
     });
     document.getElementById("logcnt").textContent = lastLogId;
     box.scrollTop = box.scrollHeight;
-  } catch (e) { /* 忽略 */ }
+  } catch (e) {}
 }
 
 async function loadHistory() {
@@ -167,10 +208,10 @@ async function loadHistory() {
       `<td>${esc(JSON.stringify(x.result || {}))}</td>` +
       `<td>${esc((x.lineages||[]).join(", "))}</td>` +
       `<td>${esc((x.composite_skills||[]).join(", "))}</td></tr>`).join("");
-  } catch (e) { /* 忽略 */ }
+  } catch (e) {}
 }
 
-setInterval(loadState, 800);   // 更快刷新：看到族系子"生长"
+setInterval(loadState, 800);
 setInterval(loadLogs, 1000);
 setInterval(loadHistory, 3000);
 loadState(); loadLogs(); loadHistory();

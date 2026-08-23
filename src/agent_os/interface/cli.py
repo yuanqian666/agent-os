@@ -95,6 +95,25 @@ def wait_result(sandbox_root: str, task_id: str | None = None,
     raise TimeoutError("等待任务结果超时")
 
 
+def render_workflow(result: dict) -> str:
+    """从任务结果渲染结构化工作流摘要（Topology DAG 执行链路）。"""
+    out = result.get("output") or {}
+    lines = []
+    lines.append(f"任务 {out.get('task_id')} 执行链路:")
+    steps = out.get("steps") or []
+    if not steps:
+        lines.append("  （无派发步骤记录）")
+    for s in steps:
+        tag = "祖先编排" if s.get("origin") else "派发"
+        lines.append(f"  步骤{s.get('step')}: [{tag}] {s.get('gene')} → {s.get('via')}")
+    r = out.get("result") or {}
+    if r.get("value") is not None:
+        lines.append(f"  计算结果: {r.get('value')}")
+    if r.get("file"):
+        lines.append(f"  落盘文件: {r.get('file')}")
+    return "\n".join(lines)
+
+
 def run_interactive(sandbox_root: str) -> None:
     """交互式 CLI：supervisor 主循环在后台线程，用户输入驱动。"""
     root = os.path.abspath(sandbox_root)
@@ -125,6 +144,9 @@ def run_interactive(sandbox_root: str) -> None:
             try:
                 r = wait_result(root, task_id=task.get("task_id"))
                 logger.task(f"[界面层] 最终结果: {json.dumps(r.get('output'), ensure_ascii=False)}")
+                print()
+                print(render_workflow(r))
+                print()
             except TimeoutError as e:
                 logger.error(str(e))
     finally:
@@ -141,9 +163,16 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Agent OS 交互终端（L1 界面层）")
     ap.add_argument("--sandbox-root", default=None,
                     help="沙箱根目录（默认 <repo>/sandbox_root）")
+    ap.add_argument("--verbose", action="store_true",
+                    help="显示全部日志（含文件事件 EVENT 级，默认隐藏噪音）")
     args = ap.parse_args()
     # 模块位于 src/agent_os/interface/ → 上溯 4 层到仓库根
     _repo = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))))
     _root = os.path.abspath(args.sandbox_root or os.path.join(_repo, "sandbox_root"))
+    if not args.verbose:
+        # 隐藏 EVENT 文件事件噪音，保留 TASK/STATUS/ERROR 工作流；
+        # 环境变量传递给 spawn 的子进程（保持同样过滤）
+        os.environ.setdefault("AGENT_OS_LOG_LEVEL", "TASK")
+        logger.set_min_level("TASK")
     run_interactive(_root)

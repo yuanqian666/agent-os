@@ -21,6 +21,15 @@ _quiet = False
 _hooks: list = []
 _lock = threading.Lock()
 _LEVELS = {EVENT: 0, TASK: 1, STATUS: 2, INFO: 3, WARN: 4, ERROR: 5}
+# 最低打印级别（EVENT=全开；TASK=隐藏文件事件噪音，保留工作流）
+_min_level = _LEVELS.get(os.environ.get("AGENT_OS_LOG_LEVEL", "EVENT"), 0)
+
+
+def set_min_level(name: str) -> None:
+    """设置最低打印级别（EVENT/TASK/STATUS/INFO/WARN/ERROR）；
+    hook 与日志文件不受影响（仍全量记录，供审计）。"""
+    global _min_level
+    _min_level = _LEVELS.get(name, 0)
 
 
 def set_quiet(q: bool) -> None:
@@ -58,6 +67,8 @@ def log(level: str, msg: str) -> None:
                     f.write((line + "\n").encode("utf-8"))  # 单次 write，NTFS 原子性最好
             except OSError:
                 pass
+        if _LEVELS[level] < _min_level:
+            return  # 低于最低打印级别：只进 hook/文件，不打印（隐藏噪音）
         if _quiet and level not in (ERROR, WARN):
             return
         print(line, flush=True)

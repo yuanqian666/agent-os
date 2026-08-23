@@ -219,8 +219,9 @@ class Supervisor:
             code = ("import sys; from agent_os.agent.runtime import runtime_main; "
                     "runtime_main(sys.argv[1])")
             args = [_sys.executable, "-c", code, path]
-        flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        p = subprocess.Popen(args, creationflags=flags)
+        # 注意：Windows 上 CREATE_NO_WINDOW 会导致子进程 stdout 句柄继承异常
+        # （子进程日志静默丢失）；子进程继承父控制台即可（不弹新窗）
+        p = subprocess.Popen(args)
         self._processes[sandbox_id] = p
         entry["pid"] = p.pid
         entry["alive"] = True

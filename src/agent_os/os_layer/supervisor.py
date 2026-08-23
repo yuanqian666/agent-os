@@ -387,7 +387,12 @@ class Supervisor:
                 except subprocess.TimeoutExpired:
                     pass
             shutil.rmtree(entry["path"], ignore_errors=True)
-            # 记录销毁轨迹（供面板灰显；清理过期）
+            # 记录销毁轨迹（供面板灰显；清理过期）。
+            # 注意：root 重建是系统常态且与存活 root 同名，不记录轨迹
+            # （否则前端 dict 会被销毁版覆盖，导致 root 消失）
+            if sid == ROOT_ID:
+                del self.registry[sid]
+                continue
             self._recent_gone[sid] = {"role": entry["role"],
                                       "parent_id": entry.get("parent_id"),
                                       "lineage_tag": entry.get("lineage_tag"),

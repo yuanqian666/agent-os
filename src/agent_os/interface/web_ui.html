@@ -113,12 +113,12 @@ async function loadState() {
     const alive = new Set();
     nodes.forEach(n => { alive.add(n.sandbox_id); n.gone = false; n.seenAt = now;
                          nodeHistory.set(n.sandbox_id, n); });
-    // 当前世代：最新 root 的世代（无 root 时为 0）
-    const rootNode = nodes.find(n => n.role === "root");
+    // 当前世代：最新存活 root 的世代
+    const rootNode = nodes.find(n => n.role === "root" && n.alive !== false);
     currentGen = rootNode ? (rootNode.generation || 0) : currentGen;
-    // 世代切换：清出旧世代节点（HAA 跨世代豁免）
+    // 历史轨迹：旧世代节点不删除（灰显保留 30s），供查看任务全过程
     nodeHistory.forEach((n, id) => {
-      if (n.role !== "haa" && (n.generation || 0) !== currentGen) nodeHistory.delete(id);
+      if (now - (n.seenAt || now) > GONE_KEEP) nodeHistory.delete(id);
     });
     nodeHistory.forEach((n, id) => {
       if (!alive.has(id)) {
@@ -138,14 +138,15 @@ async function loadState() {
 // agent 间接连接 HAA），族系子销毁（灰显）也不撤销——本世代内拓扑保持；
 // teardown 重建新 root = 新世代：旧世代节点清出，HAA 重新直连 root。
 let currentGen = 0;
+const GONE_KEEP = 30000;  // 历史轨迹保留 30s（看到完整生命周期，不一闪而过）
 function buildDisplayTree() {
   const nodes = [...nodeHistory.values()];
-  // 世代过滤：只保留当前世代节点（HAA 跨世代豁免）
+  // 历史轨迹：保留跨世代节点（灰显标注），但 HAA 挂载只认当前世代
   const genNodes = nodes.filter(n => n.role === "haa" ||
               (n.generation || 0) === currentGen);
   const dispParent = n => {
     if (n.role === "haa") {
-      // 本世代内：存活族系子优先，否则最近承载者（灰显保持拓扑）
+      // 只认当前世代的承载族系子（不挂历史分支）
       const carrier = genNodes.find(x => x.role === "agent" && x.alive !== false &&
                        (x.haa_identifiers || []).includes(n.sandbox_id))
         || genNodes.find(x => x.role === "agent" &&
@@ -166,7 +167,7 @@ function childrenOf(parentId, dispParent) {
   return [...nodeHistory.values()].filter(n => dispParent(n) === parentId);
 }
 
-function renderNode(n, dispParent) {
+function renderNode(n, dispParent, depth) {
   const kids = childrenOf(n.sandbox_id, dispParent);
   const st = n.gone ? "gone" : ("st-" + (n.state || "idle"));
   const spawn = n.seenAt && (Date.now() - n.seenAt < 700) ? " spawn" : "";
@@ -174,11 +175,14 @@ function renderNode(n, dispParent) {
       ? `<span class="gene">[${esc((n.haa_identifiers||[]).join(","))}]</span>` : "";
   const lin = n.lineage_tag ? `<span class="lin">${esc(n.lineage_tag)}</span>` : "";
   const stateTxt = n.gone ? "" : (n.state || "");
+  // 历史世代标注
+  const genTag = (n.generation || 0) < currentGen
+      ? `<span class="meta" style="color:#8a6d3b">(上一轮·gen${n.generation})"</span>` : "";
   const kidsHtml = kids.length
-      ? "<ul>" + kids.map(k => renderNode(k, dispParent)).join("") + "</ul>" : "";
+      ? "<ul>" + kids.map(k => renderNode(k, dispParent, depth + 1)).join("") + "</ul>" : "";
   return `<li><div class="node ${st}${spawn}"><div class="row"><span class="dot"></span>` +
     `<span class="role role-${n.role}">${esc(n.role)}</span></div>` +
-    `<span class="id">${esc(n.sandbox_id)}</span>${genes}${lin}` +
+    `<span class="id">${esc(n.sandbox_id)}</span>${genes}${lin}${genTag}` +
     `<span class="meta">${esc(stateTxt)}</span></div>${kidsHtml}</li>`;
 }
 
@@ -189,7 +193,7 @@ function renderTree() {
     document.getElementById("tree").innerHTML = '<span style="color:#5b6b85">（空）</span>';
     return;
   }
-  document.getElementById("tree").innerHTML = "<ul>" + roots.map(r => renderNode(r, dispParent)).join("") + "</ul>";
+  document.getElementById("tree").innerHTML = "<ul>" + roots.map(r => renderNode(r, dispParent, 0)).join("") + "</ul>";
 }
 
 async function loadLogs() {

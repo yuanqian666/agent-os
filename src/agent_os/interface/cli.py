@@ -142,6 +142,8 @@ if __name__ == "__main__":
     ap.add_argument("--sandbox-root", default=None,
                     help="沙箱根目录（默认 <repo>/sandbox_root）")
     args = ap.parse_args()
-    _repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # 模块位于 src/agent_os/interface/ → 上溯 4 层到仓库根
+    _repo = os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
     _root = os.path.abspath(args.sandbox_root or os.path.join(_repo, "sandbox_root"))
     run_interactive(_root)

@@ -262,7 +262,10 @@ class Supervisor:
     def _handle_requests_once(self) -> bool:
         """处理一批请求，返回是否处理了 root 的 report_done。"""
         try:
-            files = sorted(f for f in os.listdir(self.req_dir) if f.endswith(".json"))
+            # 排除 .tmp_ 前缀：原子写中间态的临时文件不是请求，误读/误删会导致
+            # 请求方 os.replace 源文件丢失（WinError 2）
+            files = sorted(f for f in os.listdir(self.req_dir)
+                           if f.endswith(".json") and not f.startswith(".tmp_"))
         except OSError:
             return False
         root_done = False

@@ -32,10 +32,14 @@ def read_json(path: str) -> Any | None:
 
 
 def write_json(path: str, obj: Any) -> None:
-    """原子写 JSON（先写同目录临时文件，再 os.replace）。"""
+    """原子写 JSON（先写同目录临时文件，再 os.replace）。
+
+    临时文件后缀用 .part（非 .json）：避免被按 .json 过滤的监听/扫描逻辑
+    误把半成品当正式文件处理（如 OS 控制通道的请求扫描）。
+    """
     d = os.path.dirname(os.path.abspath(path))
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp_", suffix=".json")
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp_", suffix=".part")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(obj, f, ensure_ascii=False, indent=2)
@@ -91,7 +95,7 @@ def read_text(path: str, default: str = "") -> str:
 def write_text(path: str, text: str) -> None:
     d = os.path.dirname(os.path.abspath(path))
     os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp_")
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".tmp_", suffix=".part")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)

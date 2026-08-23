@@ -56,10 +56,24 @@ def parse_input(text: str) -> dict | None:
 
 
 def submit_task(sandbox_root: str, task: dict) -> None:
-    """界面层把任务写入 Root 的 task/inbox.jsonl。"""
+    """界面层把任务写入 Root 的 task/inbox.jsonl（先等 Root 进程就绪，防竞态）。"""
+    wait_os_ready(sandbox_root, timeout=15.0)
     inbox = os.path.join(sandbox_root, "root", C.TASK_INBOX)
     jsonio.append_jsonl(inbox, task)
     logger.task(f"[界面层] 已提交任务 {task.get('task_id')} → Root task/inbox.jsonl")
+
+
+def wait_os_ready(sandbox_root: str, timeout: float = 15.0) -> None:
+    """等待 OS 完成供给（Root 进程已 spawn，pid 已登记）。"""
+    registry_path = os.path.join(sandbox_root, sup_mod.OS_DIR)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        reg = jsonio.read_json(registry_path) or {}
+        root = reg.get("root")
+        if root and root.get("pid"):
+            return
+        time.sleep(0.1)
+    raise TimeoutError("等待 OS 就绪超时")
 
 
 def wait_result(sandbox_root: str, task_id: str | None = None,

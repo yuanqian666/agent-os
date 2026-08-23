@@ -24,6 +24,22 @@ _LEVELS = {EVENT: 0, TASK: 1, STATUS: 2, INFO: 3, WARN: 4, ERROR: 5}
 # 最低打印级别（EVENT=全开；TASK=隐藏文件事件噪音，保留工作流）
 _min_level = _LEVELS.get(os.environ.get("AGENT_OS_LOG_LEVEL", "EVENT"), 0)
 
+# 内存环形缓冲（供 Web 面板增量拉取；全量记录不受打印级别过滤）
+_buffer: list[dict] = []
+_BUFFER_MAX = 500
+_next_id = 0
+
+
+def get_since(after_id: int = 0) -> list[dict]:
+    """返回 id > after_id 的日志条目（Web 面板轮询用）。"""
+    with _lock:
+        return [e for e in _buffer if e["id"] > after_id]
+
+
+def buffer_snapshot() -> list[dict]:
+    with _lock:
+        return list(_buffer)
+
 
 def set_min_level(name: str) -> None:
     """设置最低打印级别（EVENT/TASK/STATUS/INFO/WARN/ERROR）；
@@ -52,9 +68,14 @@ def _log_file() -> str | None:
 
 
 def log(level: str, msg: str) -> None:
+    global _next_id
     ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
     line = f"[{ts}] [{level}] {msg}"
     with _lock:
+        _next_id += 1
+        _buffer.append({"id": _next_id, "ts": ts, "level": level, "msg": msg})
+        if len(_buffer) > _BUFFER_MAX:
+            del _buffer[: len(_buffer) - _BUFFER_MAX]
         for fn in _hooks:
             try:
                 fn(level, msg)

@@ -114,11 +114,44 @@ def render_workflow(result: dict) -> str:
     return "\n".join(lines)
 
 
-def run_interactive(sandbox_root: str) -> None:
-    """交互式 CLI：supervisor 主循环在后台线程，用户输入驱动。"""
+def _make_state_provider(sup, sandbox_root):
+    """Web 面板的数据源：从 supervisor registry 组装沙箱树视图。"""
+    from ..os_layer import provisioner
+
+    def _prov() -> dict:
+        nodes = []
+        for sid, e in sup.registry.items():
+            if e.get("path") is None:
+                continue  # 虚拟条目（界面层）不作为沙箱节点
+            nodes.append({
+                "sandbox_id": sid,
+                "role": e["role"],
+                "parent_id": e.get("parent_id"),
+                "haa_identifiers": e.get("haa_identifiers", []),
+                "lineage_tag": e.get("lineage_tag"),
+                "alive": e.get("alive", True),
+                "state": provisioner.read_state(e["path"]),
+            })
+        return {"nodes": nodes}
+
+    return _prov
+
+
+def run_interactive(sandbox_root: str, enable_web: bool = True,
+                    web_port: int = 8710) -> None:
+    """交互式 CLI：supervisor 主循环在后台线程，用户输入驱动；
+    enable_web 时内嵌 Web 可视化面板（浏览器实时查看沙箱树/日志/历史）。"""
     root = os.path.abspath(sandbox_root)
     sup = Supervisor(root)
     sup.start()
+
+    ws = None
+    if enable_web:
+        from .web import WebServer, read_history
+        ws = WebServer(state_provider=_make_state_provider(sup, root),
+                       history_provider=lambda: read_history(sup.log_path),
+                       port=web_port)
+        ws.start()
 
     def _loop():
         sup.run_loop()
@@ -151,6 +184,8 @@ def run_interactive(sandbox_root: str) -> None:
                 logger.error(str(e))
     finally:
         # 优雅关闭：写关闭信号，等待 supervisor 循环退出
+        if ws:
+            ws.stop()
         jsonio.write_json(os.path.join(root, "os", "shutdown.json"), {})
         t.join(timeout=5)
         sup.stop()
@@ -165,6 +200,10 @@ if __name__ == "__main__":
                     help="沙箱根目录（默认 <repo>/sandbox_root）")
     ap.add_argument("--verbose", action="store_true",
                     help="显示全部日志（含文件事件 EVENT 级，默认隐藏噪音）")
+    ap.add_argument("--no-web", action="store_true",
+                    help="不启动 Web 可视化面板")
+    ap.add_argument("--web-port", type=int, default=8710,
+                    help="Web 面板端口（默认 8710）")
     args = ap.parse_args()
     # 模块位于 src/agent_os/interface/ → 上溯 4 层到仓库根
     _repo = os.path.dirname(os.path.dirname(os.path.dirname(
@@ -175,4 +214,4 @@ if __name__ == "__main__":
         # 环境变量传递给 spawn 的子进程（保持同样过滤）
         os.environ.setdefault("AGENT_OS_LOG_LEVEL", "TASK")
         logger.set_min_level("TASK")
-    run_interactive(_root)
+    run_interactive(_root, enable_web=not args.no_web, web_port=args.web_port)

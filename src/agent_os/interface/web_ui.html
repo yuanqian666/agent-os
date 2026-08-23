@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Agent OS 可视化面板</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0f1420; color: #d8e0f0; padding: 16px; }
+  h1 { font-size: 20px; margin-bottom: 4px; color: #6fd0ff; }
+  .sub { color: #7a8699; font-size: 12px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: #161d2e; border: 1px solid #26314a; border-radius: 8px; padding: 12px; }
+  .card h2 { font-size: 14px; color: #9db4d6; margin-bottom: 10px; border-bottom: 1px solid #26314a; padding-bottom: 6px; }
+  /* 树 */
+  .tree ul { list-style: none; padding-left: 18px; border-left: 1px dashed #2c3a58; margin-left: 6px; }
+  .tree li { margin: 3px 0; position: relative; }
+  .node { display: inline-flex; align-items: center; gap: 8px; background: #1d2942; border: 1px solid #2e4066; border-radius: 5px; padding: 3px 8px; font-size: 12px; }
+  .node .role { font-weight: bold; }
+  .role-root { color: #ffb86b; } .role-agent { color: #6fd0ff; }
+  .role-haa { color: #ff7b9c; } .role-interface { color: #9db4d6; }
+  .node .meta { color: #7a8699; font-size: 11px; }
+  .node .gene { color: #7ee787; }
+  .node.dead { opacity: 0.4; }
+  /* 日志 */
+  #logs { height: 380px; overflow-y: auto; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5; }
+  .lv-EVENT { color: #5b6b85; } .lv-TASK { color: #6fd0ff; }
+  .lv-STATUS { color: #7ee787; } .lv-INFO { color: #9db4d6; }
+  .lv-ERROR { color: #ff6b6b; } .lv-WARN { color: #ffb86b; }
+  /* 历史 */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #222c44; }
+  th { color: #9db4d6; }
+  /* 状态行 */
+  .statusbar { display: flex; gap: 16px; margin-bottom: 12px; font-size: 12px; color: #7a8699; }
+  .statusbar b { color: #d8e0f0; }
+</style>
+</head>
+<body>
+<h1>Agent OS 可视化面板</h1>
+<div class="sub">递归沙箱 · 文件即一切 · 能力自下而上聚合 · 基因自上而下可达</div>
+<div class="statusbar">
+  <span>沙箱数: <b id="cnt">0</b></span>
+  <span>Root 状态: <b id="rootstate">-</b></span>
+  <span>日志条数: <b id="logcnt">0</b></span>
+  <span>历史任务: <b id="histcnt">0</b></span>
+</div>
+<div class="grid">
+  <div class="card">
+    <h2>沙箱树（拓扑）</h2>
+    <div class="tree" id="tree">加载中...</div>
+  </div>
+  <div class="card">
+    <h2>工作流日志（实时）</h2>
+    <div id="logs"></div>
+  </div>
+</div>
+<div class="card" style="margin-top:12px;">
+  <h2>运行历史（runtime_log）</h2>
+  <table id="hist">
+    <thead><tr><th>时间</th><th>任务</th><th>结果</th><th>族系</th><th>能力</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+<script>
+let lastLogId = 0;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function loadState() {
+  try {
+    const r = await fetch("/api/state"); const data = await r.json();
+    const nodes = data.nodes || [];
+    document.getElementById("cnt").textContent = nodes.length;
+    const root = nodes.find(n => n.role === "root");
+    document.getElementById("rootstate").textContent = root ? (root.state || "-") : "-";
+    renderTree(nodes);
+  } catch (e) { /* 服务重启中 */ }
+}
+
+function renderTree(nodes) {
+  const byParent = {};
+  nodes.forEach(n => { (byParent[n.parent_id || ""] = byParent[n.parent_id || ""] || []).push(n); });
+  const roots = byParent[""] || [];
+  const html = nodes.filter(n => !n.parent_id || n.parent_id === "interface" || n.parent_id === "os")
+    .map(n => renderNode(n, byParent, nodes)).join("");
+  document.getElementById("tree").innerHTML = "<ul>" + (html || "<li>（空）</li>") + "</ul>";
+}
+
+function renderNode(n, byParent, all) {
+  const kids = (byParent[n.sandbox_id] || []).concat(
+    all.filter(x => x.parent_id === n.sandbox_id));
+  const cls = "role-" + n.role;
+  const gene = (n.haa_identifiers || []).length ? `<span class="gene">[${esc((n.haa_identifiers||[]).join(","))}]</span>` : "";
+  const lin = n.lineage_tag ? `<span class="meta">${esc(n.lineage_tag)}</span>` : "";
+  const st = n.state ? `<span class="meta">(${esc(n.state)})</span>` : "";
+  const kidsHtml = kids.length ? "<ul>" + kids.map(k => renderNode(k, byParent, all)).join("") + "</ul>" : "";
+  return `<li><div class="node ${n.alive === false ? "dead" : ""}"><span class="role ${cls}">${esc(n.role)}</span>` +
+    `<span>${esc(n.sandbox_id)}</span>${gene}${lin}${st}</div>${kidsHtml}</li>`;
+}
+
+async function loadLogs() {
+  try {
+    const r = await fetch("/api/logs?id=" + lastLogId);
+    const entries = await r.json();
+    if (!entries.length) return;
+    const box = document.getElementById("logs");
+    entries.forEach(e => {
+      lastLogId = Math.max(lastLogId, e.id);
+      const div = document.createElement("div");
+      div.className = "lv-" + e.level;
+      div.textContent = `[${e.ts}] [${e.level}] ${e.msg}`;
+      box.appendChild(div);
+    });
+    document.getElementById("logcnt").textContent = lastLogId;
+    box.scrollTop = box.scrollHeight;
+  } catch (e) { /* 忽略 */ }
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch("/api/history"); const recs = await r.json();
+    document.getElementById("histcnt").textContent = recs.length;
+    const tb = document.querySelector("#hist tbody");
+    tb.innerHTML = recs.slice().reverse().slice(0, 20).map(x =>
+      `<tr><td>${esc(x.time)}</td><td>${esc(x.task_id)}</td>` +
+      `<td>${esc(JSON.stringify(x.result || {}))}</td>` +
+      `<td>${esc((x.lineages||[]).join(", "))}</td>` +
+      `<td>${esc((x.composite_skills||[]).join(", "))}</td></tr>`).join("");
+  } catch (e) { /* 忽略 */ }
+}
+
+setInterval(loadState, 1500);
+setInterval(loadLogs, 1000);
+setInterval(loadHistory, 3000);
+loadState(); loadLogs(); loadHistory();
+</script>
+</body>
+</html>

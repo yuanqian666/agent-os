@@ -1,0 +1,48 @@
+**[AGENT_OS_CORE_AXIOMS_AND_TOPOLOGY_SPEC]**
+
+**1. THE THREE TOPOLOGICAL AXIOMS (三大拓扑公理)**
+
+* **[AXIOM 1] 基因的准确定义 (Definition of Gene: Downward Reachability)**
+* **定义**：如果一个 Agent 能够**仅通过下放 `task` 文件**，最终成功调用底层的某个 HAA，那么就说该 Agent **拥有**该 HAA 对应的基因。
+* **本质**：基因不是静态的数据标签，而是系统沙箱结构中，自上而下的**物理可达性 (Reachability)**。
+
+
+* **[AXIOM 2] 公链的准确定义 (Definition of Public Chain: Bottom-Up Resource Pipeline)**
+* **定义**：从最底层的某一个 HAA 出发，**向上**找出一条由父子关系严格连接出来的链条，直到根主 Agent。这根贯穿全局的唯一链条，称为某个特定基因（如网络、磁盘）的**公链**。
+* **本质**：公链是操作系统的“物理权限专线”与“资源中枢神经”。底层 HAA 作为唯一单例，永远处在公链的最底端（叶子节点）。
+
+
+* **[AXIOM 3] 族系的准确定义 (Definition of Lineage: Top-Down Nested Logic Tree)**
+* **定义**：从任意一个 Agent 节点看起，它的每一个子代及后代共同构成了它的**族系**。如果在该族系内部，某个子 Agent 再次向下繁殖，则又形成了一个嵌套的子族系（即：A 族系中包含 a 族系）。
+* **本质**：族系是因“任务拆解”而动态生成的“业务逻辑部门/特遣队”。它代表大脑皮层的拆解、思考与汇报结构。
+
+
+
+**2. THE PRIME DIRECTIVE OF CONTROL FLOW (控制流第一定律)**
+
+* **[THE RULE]：上报是顺着族系上报，下放是顺着公链下放。**
+* **上报 (Upward via Lineage)**：业务逻辑的汇聚。当叶子节点 Agent 遇到没有权限处理的子任务，或完成当前计算时，将结果/求助信息写入 `status`。信息沿着**族系**的父子关系层层向上汇报，直到遇到同时拥有所需基因的“祖先节点”。
+* **下放 (Downward via Public Chain)**：物理权限的穿透。当拥有管辖权的“祖先节点”收到汇报后，直接通过自身所在的**公链**，将明确的执行指令写入 `task`，一路下传至底层的 HAA 进行物理执行。
+* **并发控制 (Concurrency Resolution)**：公链与族系的交汇点（祖先节点）天然充当了底层 HAA 的“排队机/并发锁”。各个族系的并发请求在此汇聚，化为串行的任务下发，彻底消除底层资源竞争死锁。
+
+**3. REPRODUCTION & EVOLUTION (演化与调度机制)**
+
+* **[DEPRECATED] 有性生殖已彻底废除 (Sexual Reproduction is Abolished)**：
+* 违背树状文件系统隔离原则。跨族系强行融合基因会导致拓扑断裂和管理权越界。
+
+
+* **[NEW PARADIGM] 任务递归分解与祖先编排 (Recursive Orchestration)**：
+* 系统仅存在**无性生殖（细胞分裂）**。
+* 遇到跨域复合任务（如网络 + 磁盘），底层节点不寻求横向杂交，而是触发 `help_request` 向上抛回。
+* 由同时拥有多种基因的共同祖先作为**MapReduce 编排者**。祖先按照任务步骤，分别向“网络族系分支”派发抓取任务，向“计算族系分支”派发处理任务，最后向“磁盘公链”派发存储任务。
+* **保留能力 = 保留这套基于任务步骤切分的“祖先调度蓝图 (Topology DAG)”**。
+
+
+
+**4. THE ESSENCE OF HAA (底层 HAA 的真正本质)**
+
+* **[NATURE] HAA 不是技能，而是权限令牌 (Capability / Token)**。
+* **大模型全知性 (LLM Omniscience)**：接入各个沙箱的大模型 (Agent) 本身具备极高的推理能力与世界知识，不存在“不会写某段代码”或“不懂某种协议”的情况。
+* **机制与策略分离 (Separation of Mechanism and Policy)**：系统缺的从来不是大模型的智力（策略），而是触达物理世界的“手脚”。底层 HAA 提供了这种物理机制。如果微内核没有将某条公链与该沙箱连通，Agent 即便在 `task` 中写下完美的网络请求，也无法逾越零信任沙箱的物理屏障。HAA 构成了物理世界与纯逻辑沙箱之间唯一的**权限隘口**。
+
+**[END_OF_SUMMARY]**
